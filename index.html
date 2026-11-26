@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: file:; connect-src 'none'">
+  <title>Grapher</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <main class="app">
+    <aside class="panel" aria-label="Formulas and settings">
+      <header class="header">
+        <h1>Grapher</h1>
+        <button type="button" id="btnTheme" class="icon" aria-label="Switch between light and dark mode" title="Light / dark mode">
+          <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+          <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+        </button>
+        <button type="button" id="btnHelp" class="icon" aria-label="Help" title="Help">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1.9-1.1 1.8M12 17h.01"/></svg>
+        </button>
+      </header>
+
+      <div class="scrollable">
+        <ol id="list" class="list"></ol>
+        <div class="actions">
+          <button type="button" id="btnNew" class="primary">Add formula</button>
+          <select id="examples" aria-label="Load an example"><option value="">Load example…</option></select>
+        </div>
+
+        <section id="secParameters" hidden>
+          <h2>Parameters</h2>
+          <div id="parameters"></div>
+        </section>
+
+        <details class="settings" open>
+          <summary>View</summary>
+          <div class="options">
+            <label><input type="checkbox" data-op="grid"> Grid</label>
+            <label><input type="checkbox" data-op="axes"> Axes and numbers</label>
+            <label><input type="checkbox" data-op="polar"> Polar grid</label>
+            <label><input type="checkbox" data-op="pi"> x-axis in multiples of π</label>
+            <label><input type="checkbox" data-op="notables"> Key points</label>
+          </div>
+        </details>
+
+        <details class="settings">
+          <summary>Save and open</summary>
+          <div class="buttons">
+            <button type="button" id="btnPng">Save PNG image</button>
+            <button type="button" id="btnExport">Save project</button>
+            <button type="button" id="btnImport">Open project</button>
+            <input type="file" id="fileInput" accept=".json,application/json" hidden>
+          </div>
+          <p id="notice" class="notice" role="status"></p>
+        </details>
+      </div>
+    </aside>
+
+    <section class="canvas-wrap" aria-label="Graph">
+      <canvas id="graph" tabindex="0" aria-label="Interactive graph. Arrow keys to pan, + and − to zoom in or out, 0 to reset view."></canvas>
+      <div class="zoom">
+        <button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out">−</button>
+        <button type="button" data-zoom="home" aria-label="Reset to initial view" title="Initial view">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11 12 4l8 7M6.5 9.5V20h11V9.5"/></svg>
+        </button>
+      </div>
+      <div id="tooltip" class="tooltip" hidden></div>
+      <output id="coords" class="coords"></output>
+    </section>
+  </main>
+
+  <div id="stylePopup" class="popup" role="dialog" aria-label="Curve style" hidden>
+    <div id="swatches" class="swatches"></div>
+    <label>Custom color <input type="color" id="customColor"></label>
+    <label>Thickness <input type="range" id="thickness" min="1" max="8" step="0.5"></label>
+    <label>Stroke
+      <select id="stroke">
+        <option value="solid">Solid</option>
+        <option value="dashed">Dashed</option>
+        <option value="dotted">Dotted</option>
+      </select>
+    </label>
+  </div>
+
+  <dialog id="help">
+    <h2>How to write formulas</h2>
+    <table>
+      <tr><th>Function</th><td><code>y = x^2 - 3</code> or just <code>x^2 - 3</code></td></tr>
+      <tr><th>x as a function of y</th><td><code>x = sin(y)</code></td></tr>
+      <tr><th>Implicit equation</th><td><code>x^2 + y^2 = 25</code></td></tr>
+      <tr><th>Inequality</th><td><code>y &lt; 2x + 1</code>, <code>x^2 + y^2 &lt;= 4</code></td></tr>
+      <tr><th>Polar</th><td><code>r = 2 + cos(5θ)</code> (you can type <code>theta</code>)</td></tr>
+      <tr><th>Parametric</th><td><code>(4cos(3t), 4sin(2t))</code></td></tr>
+      <tr><th>Point</th><td><code>(2, f(2))</code></td></tr>
+      <tr><th>Define and reuse</th><td><code>f(x) = x^3 - x</code>, then <code>f(x - 2)</code></td></tr>
+      <tr><th>Derivatives</th><td><code>f'(x)</code>, <code>f''(x)</code> or the “Derivative” button</td></tr>
+      <tr><th>Parameters</th><td><code>a sin(b x)</code> creates sliders for a and b</td></tr>
+      <tr><th>Restrict domain</th><td><code>y = x^2 {-1 &lt; x &lt; 2}</code></td></tr>
+      <tr><th>Comment</th><td>Lines starting with <code>#</code> are not plotted</td></tr>
+    </table>
+    <p><strong>Functions:</strong> sin, cos, tan, sec, csc, cot, asin, acos, atan, atan2, sinh, cosh, tanh, sqrt (√), cbrt, root(n, x), abs or |x|, exp, ln, log (base 10), log2, log(base, x), floor, ceil, round, sign, min, max, mod, gamma, factorial (n!).</p>
+    <p><strong>Constants:</strong> pi (π), e, tau (τ). Angles are in radians and decimals use a dot.</p>
+    <p><strong>Mouse &amp; keyboard:</strong> drag to pan and use the scroll wheel to zoom. Shift + wheel scales only the x-axis; Alt + wheel scales only the y-axis. On touch screens, pinch to zoom. Enter adds a new formula.</p>
+    <form method="dialog"><button class="primary">Close</button></form>
+  </dialog>
+
+  <script src="js/formulas.js"></script>
+  <script src="js/graph.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
