@@ -1,6 +1,6 @@
 /**
  * app.js - interface logic: formula rows, parameter sliders, style popup,
- * theme, canvas interaction, saving and opening projects.
+ * theme, canvas interaction, saving, SVG/LaTeX/MathML export and opening projects.
  * Depends on Formulas (formulas.js) and Graph (graph.js).
  */
 (function () {
@@ -32,8 +32,10 @@
   let nextId = 1;
   const newLine = (data = {}) => {
     const id = nextId++;
-    return { id, text: '', color: (id - 1) % 8, thickness: 2.5, stroke: 'solid', visible: true,
-      derivative: false, from: '0', to: '2π', ...data };
+    return {
+      id, text: '', color: (id - 1) % 8, thickness: 2.5, stroke: 'solid', visible: true,
+      derivative: false, from: '0', to: '2π', ...data,
+    };
   };
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
   const state = {
@@ -53,9 +55,11 @@
    * Builds the plain-object snapshot used for localStorage and for the .json export.
    */
   function serialize() {
-    return { version: 1, lines: state.lines.map(({ id, ...l }) => l), parameters: state.parameters,
+    return {
+      version: 1, lines: state.lines.map(({ id, ...l }) => l), parameters: state.parameters,
       options: state.options, themeManual: state.themeManual,
-      theme: state.themeManual ? state.theme : null, view: graph.view };
+      theme: state.themeManual ? state.theme : null, view: graph.view,
+    };
   }
   /**
    * Saves the snapshot to localStorage. Errors (private mode, quota) are ignored.
@@ -70,7 +74,6 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(writeStorage, 300);
   }
-  // Write immediately when the page is reloaded, closed or hidden, so the last state is never lost
   /**
    * Saves immediately; used when the page is reloaded, closed or hidden.
    */
@@ -89,7 +92,8 @@
       if (Number.isInteger(l.color) ? PALETTE.light[l.color] : /^#[0-9a-f]{6}$/i.test(l.color)) n.color = l.color;
       n.thickness = Math.min(8, Math.max(1, num(l.thickness, 2.5)));
       if (['solid', 'dashed', 'dotted'].includes(l.stroke)) n.stroke = l.stroke;
-      n.visible = l.visible !== false; n.derivative = l.derivative === true;
+      n.visible = l.visible !== false;
+      n.derivative = l.derivative === true;
       if (typeof l.from === 'string') n.from = l.from;
       if (typeof l.to === 'string') n.to = l.to;
       return n;
@@ -161,8 +165,10 @@
     state.lines.forEach((l, i) => {
       const o = compiled.lines[i];
       if (!o || !l.visible || ['error', 'empty', 'constant', 'function'].includes(o.type)) return;
-      out.push({ id: l.id, o, range: rangeOf(l), derivative: l.derivative,
-        style: { color: colorOf(l), thickness: l.thickness, stroke: l.stroke } });
+      out.push({
+        id: l.id, o, range: rangeOf(l), derivative: l.derivative,
+        style: { color: colorOf(l), thickness: l.thickness, stroke: l.stroke },
+      });
     });
     return out;
   }
@@ -187,7 +193,8 @@
       if (o.type === 'constant' && o.literal) {
         const p = (state.parameters[o.name] ||= { value: o.value, min: -10, max: 10 });
         p.value = o.value;
-        p.min = Math.min(p.min, o.value); p.max = Math.max(p.max, o.value);
+        p.min = Math.min(p.min, o.value);
+        p.max = Math.max(p.max, o.value);
         globals[o.name] = o.value;
       }
     }
@@ -219,8 +226,10 @@
   function createRow(l) {
     const color = el('button', { type: 'button', className: 'color', title: 'Color and style' });
     color.setAttribute('aria-label', 'Color and style');
-    const input = el('input', { type: 'text', className: 'formula', value: l.text, placeholder: 'y = sin(x)',
-      spellcheck: false, autocomplete: 'off', maxLength: 500 });
+    const input = el('input', {
+      type: 'text', className: 'formula', value: l.text, placeholder: 'y = sin(x)',
+      spellcheck: false, autocomplete: 'off', maxLength: 500,
+    });
     input.setAttribute('autocapitalize', 'off');
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('aria-label', 'Formula');
@@ -685,6 +694,267 @@
   });
   $('#btnHelp').addEventListener('click', () => $('#help').showModal());
 
+  // ---- Export and import (PNG, SVG, LaTeX, MathML, JSON) ----
+  const xmlEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  function dashAttr(stroke, thickness) {
+    if (stroke === 'dashed') return ` stroke-dasharray="${(thickness * 3.5).toFixed(2)} ${(thickness * 2.5).toFixed(2)}"`;
+    if (stroke === 'dotted') return ` stroke-dasharray="0.1 ${(thickness * 2.4).toFixed(2)}"`;
+    return '';
+  }
+
+  function polylineSvg(segments, style) {
+    const d = segments
+      .filter((s) => s.length > 1)
+      .map((s) => s.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' '))
+      .join(' ');
+    if (!d) return '';
+    return `<path d="${d}" fill="none" stroke="${xmlEscape(style.color)}" stroke-width="${style.thickness}" stroke-linecap="round" stroke-linejoin="round"${dashAttr(style.stroke, style.thickness)}${style.alpha != null ? ` opacity="${style.alpha}"` : ''}/>`;
+  }
+
+  /**
+   * Generates a standalone vector SVG representation of the current graph.
+   * @returns {string} SVG markup.
+   */
+  function buildSvg() {
+    const w = Math.max(1, Math.round(graph.w)), h = Math.max(1, Math.round(graph.h));
+    const v = graph.view, op = state.options;
+    const gx = op.pi ? Graph.stepPi(v.sx) : Graph.step(v.sx);
+    const gy = Graph.step(v.sy);
+    const x0 = graph.mx(0), x1 = graph.mx(w), y0 = graph.my(h), y1 = graph.my(0);
+    const parts = [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
+      `<rect width="${w}" height="${h}" fill="${xmlEscape(colors.bg)}"/>`,
+    ];
+
+    if (op.grid) {
+      if (op.polar) {
+        const ox = graph.px(0), oy = graph.py(0);
+        const far = Math.max(...[[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => Math.hypot(graph.mx(x), graph.my(y))));
+        const near = Math.hypot(Math.max(graph.mx(0), 0, -graph.mx(w)), Math.max(graph.my(h), 0, -graph.my(0)));
+        const start = Math.max(1, Math.floor(near / gy.major));
+        for (let i = start; i * gy.major <= far && i < start + 200; i++) {
+          parts.push(`<ellipse cx="${ox.toFixed(2)}" cy="${oy.toFixed(2)}" rx="${(i * gy.major * v.sx).toFixed(2)}" ry="${(i * gy.major * v.sy).toFixed(2)}" fill="none" stroke="${xmlEscape(colors.grid)}" stroke-width="1"/>`);
+        }
+        for (let k = 0; k < 24; k++) {
+          const a = k * Math.PI / 12;
+          parts.push(`<line x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${graph.px(Math.cos(a) * far).toFixed(2)}" y2="${graph.py(Math.sin(a) * far).toFixed(2)}" stroke="${xmlEscape(colors.gridFine)}" stroke-width="1"/>`);
+        }
+      } else {
+        const gridLine = (step, vertical, strokeCol) => {
+          const a = vertical ? x0 : y0, b = vertical ? x1 : y1;
+          for (let i = Math.ceil(a / step); i <= Math.floor(b / step); i++) {
+            const q = Math.round(vertical ? graph.px(i * step) : graph.py(i * step)) + 0.5;
+            if (vertical) parts.push(`<line x1="${q}" y1="0" x2="${q}" y2="${h}" stroke="${xmlEscape(strokeCol)}" stroke-width="1"/>`);
+            else parts.push(`<line x1="0" y1="${q}" x2="${w}" y2="${q}" stroke="${xmlEscape(strokeCol)}" stroke-width="1"/>`);
+          }
+        };
+        gridLine(gx.major / gx.div, true, colors.gridFine);
+        gridLine(gy.major / gy.div, false, colors.gridFine);
+        gridLine(gx.major, true, colors.grid);
+        gridLine(gy.major, false, colors.grid);
+      }
+    }
+
+    if (op.axes) {
+      const ex = Math.round(graph.px(0)) + 0.5, ey = Math.round(graph.py(0)) + 0.5;
+      parts.push(`<line x1="0" y1="${ey}" x2="${w}" y2="${ey}" stroke="${xmlEscape(colors.axis)}" stroke-width="1.5"/>`);
+      parts.push(`<line x1="${ex}" y1="0" x2="${ex}" y2="${h}" stroke="${xmlEscape(colors.axis)}" stroke-width="1.5"/>`);
+      const ly = Math.min(h - 16, Math.max(4, ey + 5));
+      for (let i = Math.ceil(x0 / gx.major); i <= Math.floor(x1 / gx.major); i++) {
+        if (i === 0) continue;
+        const val = i * gx.major;
+        const lbl = op.pi ? Graph.labelPi(val) : Graph.number(val, gx.major);
+        parts.push(`<text x="${graph.px(val).toFixed(2)}" y="${ly}" text-anchor="middle" dominant-baseline="hanging" font-family="system-ui, sans-serif" font-size="12" fill="${xmlEscape(colors.text)}">${xmlEscape(lbl)}</text>`);
+      }
+      const inside = ex > 36, lx = Math.min(w - 6, Math.max(6, ex - 7));
+      for (let i = Math.ceil(y0 / gy.major); i <= Math.floor(y1 / gy.major); i++) {
+        if (i === 0) continue;
+        const lbl = Graph.number(i * gy.major, gy.major);
+        parts.push(`<text x="${lx}" y="${graph.py(i * gy.major).toFixed(2)}" text-anchor="${inside ? 'end' : 'start'}" dominant-baseline="central" font-family="system-ui, sans-serif" font-size="12" fill="${xmlEscape(colors.text)}">${xmlEscape(lbl)}</text>`);
+      }
+      if (ex > 14 && ey < h - 14) {
+        parts.push(`<text x="${ex - 6}" y="${ey + 5}" text-anchor="end" dominant-baseline="hanging" font-family="system-ui, sans-serif" font-size="12" fill="${xmlEscape(colors.text)}">0</text>`);
+      }
+    }
+
+    const drawn = objects();
+    const order = [...drawn].sort((a, b) => (b.o.type === 'inequality') - (a.o.type === 'inequality'));
+    for (const item of order) {
+      const { o, style } = item;
+      if (o.type === 'explicit' || o.type === 'explicitX') {
+        const segs = graph.explicitSegments(o.f, o.type === 'explicit' ? 'x' : 'y');
+        parts.push(polylineSvg(segs, style));
+        if (item.derivative) {
+          const dFn = (u) => Formulas.derivative(o.f, u);
+          parts.push(polylineSvg(graph.explicitSegments(dFn, o.type === 'explicit' ? 'x' : 'y'),
+            { ...style, thickness: Math.max(1.2, style.thickness * 0.65), stroke: 'dashed', alpha: 0.75 }));
+        }
+      } else if (o.type === 'polar' || o.type === 'parametric') {
+        const [a, b] = item.range;
+        const point = o.type === 'polar'
+          ? (t) => { const r = o.f(t); return [graph.px(r * Math.cos(t)), graph.py(r * Math.sin(t)), t]; }
+          : (t) => { const [x, y] = o.f(t); return [graph.px(x), graph.py(y), t]; };
+        const n = Math.min(6000, Math.max(600, Math.ceil(Math.abs(b - a) * 60)));
+        parts.push(polylineSvg(graph.sample(point, a, b, n), style));
+      } else if (o.type === 'implicit' || o.type === 'inequality') {
+        if (o.type === 'inequality') {
+          const strict = o.op === '<' || o.op === '>';
+          const borderStyle = { ...style, stroke: strict ? 'dashed' : style.stroke };
+          const b = o.border;
+          if (b && !b.restricted) {
+            const segs = graph.explicitSegments(b.f, b.axis === 'y' ? 'x' : 'y');
+            const vertical = b.axis === 'y';
+            const bound = vertical ? (b.greater ? -10 : h + 10) : (b.greater ? w + 10 : -10);
+            for (const t of segs) {
+              if (!t.length) continue;
+              const a = t[0], z = t[t.length - 1];
+              const poly = vertical
+                ? `${t.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ')} ${z[0].toFixed(2)},${bound} ${a[0].toFixed(2)},${bound}`
+                : `${t.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ')} ${bound},${z[1].toFixed(2)} ${bound},${a[1].toFixed(2)}`;
+              parts.push(`<polygon points="${poly}" fill="${xmlEscape(style.color)}" fill-opacity="0.17"/>`);
+            }
+            parts.push(polylineSvg(segs, borderStyle));
+          } else {
+            parts.push(polylineSvg(graph.contour(o.F, 4), borderStyle));
+          }
+        } else {
+          parts.push(polylineSvg(graph.contour(o.F, 3), { ...style, stroke: 'solid' }));
+        }
+      } else if (o.type === 'point') {
+        const [x, y] = o.f();
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          parts.push(`<circle cx="${graph.px(x).toFixed(2)}" cy="${graph.py(y).toFixed(2)}" r="${(3 + style.thickness).toFixed(2)}" fill="${xmlEscape(style.color)}" stroke="${xmlEscape(colors.bg)}" stroke-width="2"/>`);
+        }
+      }
+    }
+
+    for (const p of graph.notables) {
+      parts.push(`<circle cx="${p.X.toFixed(2)}" cy="${p.Y.toFixed(2)}" r="4" fill="${xmlEscape(p.color)}" stroke="${xmlEscape(colors.bg)}" stroke-width="2"/>`);
+    }
+
+    const visible = drawn.map((o) => ({ color: o.style.color, text: state.lines.find((l) => l.id === o.id)?.text || '' })).filter((v) => v.text);
+    if (visible.length) {
+      const measureCtx = canvas.getContext('2d');
+      measureCtx.font = '15px "Cambria Math", Cambria, serif';
+      const maxTextW = Math.max(...visible.map((v) => measureCtx.measureText(v.text).width), 140);
+      const boxW = Math.min(w - 24, Math.ceil(maxTextW + 54));
+      const boxH = visible.length * 22 + 12;
+      parts.push(`<rect x="12" y="12" width="${boxW}" height="${boxH}" fill="${xmlEscape(colors.bg)}" stroke="${xmlEscape(colors.grid)}" stroke-width="1"/>`);
+      visible.forEach((v, i) => {
+        const y = 29 + i * 22;
+        parts.push(`<rect x="20" y="${y - 3}" width="12" height="6" fill="${xmlEscape(v.color)}"/>`);
+        parts.push(`<text x="40" y="${y}" dominant-baseline="central" font-family="Cambria Math, Cambria, serif" font-size="15" fill="${xmlEscape(colors.text)}">${xmlEscape(v.text)}</text>`);
+      });
+    }
+
+    parts.push('</svg>');
+    return parts.join('\n');
+  }
+
+  /**
+   * Converts a plain Grapher formula expression into a readable LaTeX expression
+   * for common elementary functions, constants, roots, and exponents.
+   */
+  function formulaToLatex(raw) {
+    let s = raw.trim();
+    if (!s) return '';
+    s = s.replace(/\\text\{[^}]*\}/g, '');
+    s = s.replace(/<=/g, '\\le ').replace(/>=/g, '\\ge ');
+    s = s.replace(/\bpi\b/g, '\\pi').replace(/\btau\b/g, '\\tau').replace(/\btheta\b/g, '\\theta');
+    s = s.replace(/\b(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|sinh|cosh|tanh|ln|log)\b/g, '\\$1');
+    s = s.replace(/\bsqrt\(([^()]+)\)/g, '\\sqrt{$1}');
+    s = s.replace(/\^(\([^()]+\)|[A-Za-z0-9]+)/g, (_, exp) => `^{${exp.replace(/^\(|\)$/g, '')}}`);
+    return s;
+  }
+
+  /**
+   * Builds a LaTeX (.tex) document containing the active formulas.
+   */
+  function buildLatex() {
+    const items = state.lines.map((l) => l.text.trim()).filter((t) => t && !t.startsWith('#'));
+    const body = items.length
+      ? items.map((t, idx) => `  ${formulaToLatex(t)}${idx < items.length - 1 ? ' \\\\' : ''}`).join('\n')
+      : '  y = x^2';
+    return [
+      '% Exported from Grapher',
+      '\\documentclass{article}',
+      '\\usepackage{amsmath}',
+      '\\begin{document}',
+      '\\begin{aligned}',
+      body,
+      '\\end{aligned}',
+      '\\end{document}',
+      '',
+    ].join('\n');
+  }
+
+  /**
+   * Builds a MathML (.xml / .mml) document representing the formulas.
+   */
+  function buildMathMl() {
+    const items = state.lines.map((l) => l.text.trim()).filter((t) => t && !t.startsWith('#'));
+    const children = (items.length ? items : ['y = x^2']).map((t) =>
+      `    <semantics><annotation encoding="application/x-grapher">${xmlEscape(t)}</annotation><mtext>${xmlEscape(t)}</mtext></semantics>`
+    ).join('\n');
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">',
+      '  <mrow>',
+      children,
+      '  </mrow>',
+      '</math>',
+      '',
+    ].join('\n');
+  }
+
+  /**
+   * Converts common LaTeX or MathML constructs into Grapher formula lines.
+   * @param {string} raw File text.
+   * @returns {string[]} Extracted formula strings.
+   */
+  function parseLatexOrMathMl(raw) {
+    const text = raw.trim();
+    if (!text) return [];
+
+    if (text.startsWith('<') || /<math[\s>]/i.test(text)) {
+      const doc = new DOMParser().parseFromString(text, 'application/xml');
+      if (doc.querySelector('parsererror')) throw new Error('xml');
+      const annotations = [...doc.querySelectorAll('annotation')].map((n) => n.textContent.trim()).filter(Boolean);
+      if (annotations.length) return annotations;
+      const mtexts = [...doc.querySelectorAll('mtext')].map((n) => n.textContent.trim()).filter(Boolean);
+      if (mtexts.length) return mtexts;
+      const root = doc.querySelector('math') || doc.documentElement;
+      const tokens = [...root.querySelectorAll('mi, mn, mo')].map((n) => n.textContent.trim()).filter(Boolean);
+      return tokens.length ? [tokens.join(' ')] : [];
+    }
+
+    const cleaned = text
+      .replace(/%.*$/gm, '')
+      .replace(/\\begin\{aligned\}|\\end\{aligned\}|\\\[|\\\]|\\\(|\\\)|\\documentclass(\[[^\]]*\])?\{[^}]*\}|\\usepackage(\[[^\]]*\])?\{[^}]*\}|\\begin\{document\}|\\end\{document\}/g, '\n');
+
+    return cleaned
+      .split(/\\\\|\n/)
+      .map((line) => line
+        .replace(/&=/g, '=')
+        .replace(/&/g, ' ')
+        .replace(/\\left|\\right/g, '')
+        .replace(/\\le\b/g, '<=')
+        .replace(/\\ge\b/g, '>=')
+        .replace(/\\cdot|\\times/g, '*')
+        .replace(/\\pi\b/g, 'π')
+        .replace(/\\tau\b/g, 'τ')
+        .replace(/\\theta\b/g, 'θ')
+        .replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)')
+        .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)')
+        .replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|sinh|cosh|tanh|ln|log)\b/g, '$1')
+        .replace(/\^\{([^{}]+)\}/g, '^($1)')
+        .replace(/[{}]/g, '')
+        .trim())
+      .filter(Boolean);
+  }
+
   /**
    * Downloads a Blob as a file.
    */
@@ -714,6 +984,19 @@
     }
     copy.toBlob((b) => { if (b) { download(b, 'graph.png'); $('#notice').textContent = 'Image saved.'; } });
   });
+  $('#btnSvg').addEventListener('click', () => {
+    interacting = false; paint();
+    download(new Blob([buildSvg()], { type: 'image/svg+xml;charset=utf-8' }), 'graph.svg');
+    $('#notice').textContent = 'SVG image saved.';
+  });
+  $('#btnTex').addEventListener('click', () => {
+    download(new Blob([buildLatex()], { type: 'application/x-tex;charset=utf-8' }), 'grapher-formulas.tex');
+    $('#notice').textContent = 'LaTeX saved.';
+  });
+  $('#btnMml').addEventListener('click', () => {
+    download(new Blob([buildMathMl()], { type: 'application/mathml+xml;charset=utf-8' }), 'grapher-formulas.xml');
+    $('#notice').textContent = 'MathML saved.';
+  });
   $('#btnExport').addEventListener('click', () => {
     download(new Blob([JSON.stringify(serialize(), null, 2)], { type: 'application/json' }), 'grapher-project.json');
     $('#notice').textContent = 'Project saved.';
@@ -729,6 +1012,39 @@
       $('#notice').textContent = 'Project opened.';
     } catch (_) {
       $('#notice').textContent = 'That file is not a valid project. Choose a .json saved from this grapher.';
+    }
+  });
+  $('#btnImportMath').addEventListener('click', () => $('#mathInput').click());
+  $('#mathInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const imported = parseLatexOrMathMl(await file.text());
+      if (!imported.length) throw new Error('empty');
+      const remainingSlots = Math.max(0, 100 - state.lines.length);
+      const hasOnlyBlank = state.lines.length === 1 && !state.lines[0].text.trim();
+      if (hasOnlyBlank) {
+        nextId = 1;
+        state.lines = imported.slice(0, 100).map((item, idx) => newLine({
+          text: item.slice(0, 500),
+          color: idx % 8,
+        }));
+      } else {
+        const used = new Set(state.lines.map((l) => l.color));
+        const added = imported.slice(0, remainingSlots).map((item) => {
+          const free = [0, 1, 2, 3, 4, 5, 6, 7].find((i) => !used.has(i));
+          if (free !== undefined) used.add(free);
+          return newLine({ text: item.slice(0, 500), ...(free !== undefined ? { color: free } : {}) });
+        });
+        state.lines.push(...added);
+      }
+      state.active = state.lines[state.lines.length - 1].id;
+      mountList();
+      rows.get(state.active)?.input.focus();
+      $('#notice').textContent = `Imported ${imported.length} formula(s).`;
+    } catch (_) {
+      $('#notice').textContent = 'Could not parse formulas from that file. Choose a valid .tex or MathML .xml/.mml file.';
     }
   });
 
