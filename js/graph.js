@@ -1,3 +1,8 @@
+/**
+ * graph.js - canvas renderer: grid and axes, curve sampling, implicit
+ * contours, inequality regions, key points and hit testing.
+ * Exposes the global `Graph` class.
+ */
 (function (global) {
   'use strict';
 
@@ -12,6 +17,9 @@
       this.notables = [];
     }
 
+    /**
+     * Matches the canvas buffer to its CSS size and the device pixel ratio.
+     */
     resize() {
       const r = this.canvas.getBoundingClientRect();
       const d = window.devicePixelRatio || 1;
@@ -25,8 +33,16 @@
     mx(px) { return this.view.cx + (px - this.w / 2) / this.view.sx; }
     my(py) { return this.view.cy - (py - this.h / 2) / this.view.sy; }
 
+    /**
+     * Moves the view by a pixel offset.
+     */
     pan(dx, dy) { this.view.cx -= dx / this.view.sx; this.view.cy += dy / this.view.sy; }
 
+    /**
+     * Scales the view around a pixel (default: the center).
+     * @param {number} fx Horizontal factor.
+     * @param {number} fy Vertical factor.
+     */
     zoom(fx, fy, px = this.w / 2, py = this.h / 2) {
       const v = this.view, x = this.mx(px), y = this.my(py);
       const clamp = (s) => Math.min(1e8, Math.max(1e-6, s));
@@ -35,11 +51,17 @@
       v.cy = y + (py - this.h / 2) / v.sy;
     }
 
+    /**
+     * Resets to the initial view centered on the origin.
+     */
     home() {
       const s = Math.max(20, Math.min(this.w, this.h) / 12);
       this.view = { cx: 0, cy: 0, sx: s, sy: s };
     }
 
+    /**
+     * Chooses a "nice" major grid step for a pixel scale.
+     */
     static step(scale, target = 90) {
       const raw = target / scale;
       const p = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -50,6 +72,9 @@
       return { major: 10 * p, div: 5 };
     }
 
+    /**
+     * Like step(), but in multiples of π for the x-axis.
+     */
     static stepPi(scale) {
       const target = 90 / scale / Math.PI;
       const op = [1 / 12, 1 / 6, 1 / 4, 1 / 2, 1, 2, 4, 5, 10, 20, 50, 100, 200, 500, 1000, 1e4, 1e5, 1e6];
@@ -57,6 +82,9 @@
       return { major: k * Math.PI, div: 2, k };
     }
 
+    /**
+     * Formats an axis label.
+     */
     static number(v, step) {
       if (Math.abs(v) < step * 1e-6) return '0';
       if (Math.abs(v) >= 1e6 || Math.abs(v) < 1e-4) return v.toExponential(2).replace(/\.?0+e/, 'e').replace('-', '−');
@@ -64,6 +92,9 @@
       return v.toFixed(dec).replace('-', '−');
     }
 
+    /**
+     * Formats a multiple of π, e.g. 3π/2.
+     */
     static labelPi(v) {
       const k = v / Math.PI;
       for (const den of [1, 2, 3, 4, 6, 12]) {
@@ -77,6 +108,9 @@
       return k.toFixed(2) + 'π';
     }
 
+    /**
+     * Draws the grid, axes and axis numbers.
+     */
     grid(theme, op) {
       const c = this.ctx, v = this.view;
       const gx = op.pi ? Graph.stepPi(v.sx) : Graph.step(v.sx);
@@ -129,6 +163,9 @@
       if (ex > 14 && ey < this.h - 14) write('0', ex - 6, ey + 5);
     }
 
+    /**
+     * Draws concentric circles and radial lines.
+     */
     polarGrid(theme, step) {
       const c = this.ctx, v = this.view, ox = this.px(0), oy = this.py(0);
       const far = Math.max(...[[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]]
@@ -147,6 +184,10 @@
       c.stroke();
     }
 
+    /**
+     * Samples a point function into continuous screen-space segments,
+     * refining near jumps and splitting at asymptotes and undefined values.
+     */
     sample(point, a, b, n) {
       const segments = [];
       let current = [];
@@ -192,6 +233,9 @@
       return segments;
     }
 
+    /**
+     * Strokes polylines with the given color, thickness and dash style.
+     */
     strokeSegments(segments, style) {
       const c = this.ctx;
       c.save();
@@ -210,6 +254,9 @@
       c.restore();
     }
 
+    /**
+     * Samples y = f(x) (axis "x") or x = f(y) (axis "y").
+     */
     explicitSegments(f, axis) {
       if (axis === 'x') {
         return this.sample((x) => [this.px(x), this.py(f(x)), x], this.mx(-4), this.mx(this.w + 4), Math.ceil(this.w / 2));
@@ -217,6 +264,10 @@
       return this.sample((y) => [this.px(f(y)), this.py(y), y], this.my(this.h + 4), this.my(-4), Math.ceil(this.h / 2));
     }
 
+    /**
+     * Marching-squares contour of F(x, y) = 0 for implicit equations.
+     * @param {number} cell Cell size in pixels.
+     */
     contour(F, cell) {
       const nx = Math.ceil(this.w / cell), ny = Math.ceil(this.h / cell);
       const dx = this.w / nx, dy = this.h / ny;
@@ -253,6 +304,9 @@
       return segments;
     }
 
+    /**
+     * Fills and outlines the area of an inequality.
+     */
     region(o, style) {
       const c = this.ctx;
       const strict = o.op === '<' || o.op === '>';
@@ -295,6 +349,9 @@
       return segments;
     }
 
+    /**
+     * Draws a full frame: background, grid, every object and key points.
+     */
     draw(objects, theme, op) {
       const c = this.ctx;
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -349,6 +406,9 @@
       if (op.notables) this.drawNotables(objects, theme, op.active);
     }
 
+    /**
+     * Draws a dot with a background-colored outline.
+     */
     mark(x, y, color, theme, r = 4.5) {
       const c = this.ctx;
       c.beginPath(); c.arc(x, y, r, 0, 2 * Math.PI);
@@ -356,6 +416,9 @@
       c.lineWidth = 2; c.strokeStyle = theme.bg; c.stroke();
     }
 
+    /**
+     * Finds zeros of g in [a, b] by scanning n steps and bisecting sign changes.
+     */
     static zeros(g, a, b, n) {
       const out = [];
       const h = (b - a) / n;
@@ -379,6 +442,9 @@
       return out;
     }
 
+    /**
+     * Finds and draws roots, extrema, intersections and the y-intercept of the active function.
+     */
     drawNotables(objects, theme, active) {
       const exp = objects.filter((q) => q.o.type === 'explicit');
       const primary = exp.find((q) => q.id === active) || exp[0];
@@ -412,6 +478,9 @@
       for (const p of this.notables) this.mark(p.X, p.Y, p.color, theme, 4);
     }
 
+    /**
+     * Returns the closest curve or key point to a pixel position, or null.
+     */
     nearest(X, Y) {
       for (const p of this.notables) if (Math.hypot(p.X - X, p.Y - Y) < 10) return { ...p, label: p.type };
       let best = null, dist = 24;

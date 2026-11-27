@@ -1,3 +1,8 @@
+/**
+ * app.js - interface logic: formula rows, parameter sliders, style popup,
+ * theme, canvas interaction, saving and opening projects.
+ * Depends on Formulas (formulas.js) and Graph (graph.js).
+ */
 (function () {
   'use strict';
 
@@ -22,15 +27,19 @@
     "Gabriel's horn": ['y = 1/x {x >= 1}', 'y = -1/x {x >= 1}', 'x = 1 {-1 <= y <= 1}'],
   };
 
+
+  // ---- State and persistence ----
   let nextId = 1;
   const newLine = (data = {}) => {
     const id = nextId++;
     return { id, text: '', color: (id - 1) % 8, thickness: 2.5, stroke: 'solid', visible: true,
       derivative: false, from: '0', to: '2π', ...data };
   };
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
   const state = {
     lines: [], parameters: {}, active: null,
-    theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+    theme: systemDark.matches ? 'dark' : 'light',
+    themeManual: false, // true once the user presses the theme button; otherwise the system theme is followed
     options: { grid: true, axes: true, polar: false, pi: false, notables: true },
   };
   const globals = Object.create(null);
@@ -40,16 +49,36 @@
   const rows = new Map();
 
   let saveTimer;
+  /**
+   * Builds the plain-object snapshot used for localStorage and for the .json export.
+   */
   function serialize() {
     return { version: 1, lines: state.lines.map(({ id, ...l }) => l), parameters: state.parameters,
-      options: state.options, theme: state.theme, view: graph.view };
+      options: state.options, themeManual: state.themeManual,
+      theme: state.themeManual ? state.theme : null, view: graph.view };
   }
+  /**
+   * Saves the snapshot to localStorage. Errors (private mode, quota) are ignored.
+   */
+  function writeStorage() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize())); } catch (_) {}
+  }
+  /**
+   * Debounced save (300 ms); called after every change.
+   */
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize())); } catch (_) {}
-    }, 300);
+    saveTimer = setTimeout(writeStorage, 300);
   }
+  // Write immediately when the page is reloaded, closed or hidden, so the last state is never lost
+  /**
+   * Saves immediately; used when the page is reloaded, closed or hidden.
+   */
+  function flush() { clearTimeout(saveTimer); writeStorage(); }
+  /**
+   * Validates a saved snapshot and applies it to `state`. Throws if the format is invalid.
+   * @param {object} data Parsed JSON snapshot.
+   */
   function load(data) {
     if (!data || !Array.isArray(data.lines)) throw new Error('format');
     const num = (v, d) => (Number.isFinite(v) ? v : d);
@@ -75,7 +104,9 @@
     for (const k of Object.keys(state.options)) {
       if (typeof data.options?.[k] === 'boolean') state.options[k] = data.options[k];
     }
-    if (data.theme === 'light' || data.theme === 'dark') state.theme = data.theme;
+    // Only a theme the user chose explicitly is restored; otherwise the system theme is used
+    state.themeManual = data.themeManual === true && (data.theme === 'light' || data.theme === 'dark');
+    state.theme = state.themeManual ? data.theme : (systemDark.matches ? 'dark' : 'light');
     const v = data.view;
     if (v && [v.cx, v.cy, v.sx, v.sy].every(Number.isFinite) && v.sx > 0 && v.sy > 0) {
       graph.view = { cx: v.cx, cy: v.cy, sx: v.sx, sy: v.sy };
@@ -83,7 +114,12 @@
     state.active = state.lines[0].id;
   }
 
+
+  // ---- Rendering ----
   let pending = false, colors = null, interacting = false, endInteraction;
+  /**
+   * Reads the canvas colors from the CSS custom properties of the current theme.
+   */
   function readTheme() {
     const s = getComputedStyle(document.documentElement);
     const v = (n) => s.getPropertyValue(n).trim();
@@ -91,11 +127,17 @@
   }
   const colorOf = (l) => (typeof l.color === 'number' ? PALETTE[state.theme][l.color] : l.color);
 
+  /**
+   * Schedules a single repaint on the next animation frame.
+   */
   function redraw() {
     if (pending) return;
     pending = true;
     requestAnimationFrame(() => { pending = false; paint(); });
   }
+  /**
+   * Marks the view as moving (cheaper rendering) until 180 ms after the last event.
+   */
   function motion() {
     interacting = true;
     clearTimeout(endInteraction);
@@ -104,10 +146,16 @@
     redraw();
   }
 
+  /**
+   * Returns [from, to] of a polar or parametric line, defaulting to 0..2π.
+   */
   function rangeOf(l) {
     const a = Formulas.evaluateNumber(l.from), b = Formulas.evaluateNumber(l.to);
     return [Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : TWO_PI];
   }
+  /**
+   * Builds the list of drawable objects from the visible, compiled lines.
+   */
   function objects() {
     const out = [];
     state.lines.forEach((l, i) => {
@@ -118,11 +166,17 @@
     });
     return out;
   }
+  /**
+   * Draws the graph and refreshes the live values in the list.
+   */
   function paint() {
     graph.draw(objects(), colors, { ...state.options, active: state.active, fast: interacting });
     updateValues();
   }
 
+  /**
+   * Recompiles every formula, syncs parameters and rows, then redraws and saves.
+   */
   function recompile() {
     compiled = Formulas.compileAll(state.lines.map((l) => l.text), globals);
     for (const n of compiled.parameters) {
@@ -148,6 +202,8 @@
     save();
   }
 
+
+  // ---- Formula rows ----
   const SVG_EYE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>';
   const SVG_X = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
   const el = (tag, props = {}, ...children) => {
@@ -156,6 +212,10 @@
     return e;
   };
 
+  /**
+   * Creates the DOM row of one formula line and wires its event handlers.
+   * @returns {object} The row elements.
+   */
   function createRow(l) {
     const color = el('button', { type: 'button', className: 'color', title: 'Color and style' });
     color.setAttribute('aria-label', 'Color and style');
@@ -200,6 +260,9 @@
     point: 'Point', implicit: 'Implicit equation', inequality: 'Region', function: 'Defined function', constant: 'Constant', empty: '',
   };
 
+  /**
+   * Refreshes the status text and per-type controls (derivative, range, slider) of a row.
+   */
   function updateRow(l, o) {
     const f = rows.get(l.id);
     if (!f || !o) return;
@@ -240,6 +303,8 @@
     }
   }
 
+
+  // ---- Parameters and sliders ----
   const sliders = new Set();
   const round = (v, p) => {
     const step = (p.max - p.min) / 1000 || 0.01;
@@ -247,6 +312,9 @@
     return Number(v.toFixed(dec));
   };
 
+  /**
+   * Sets a parameter value, rewrites its defining line if any, and repaints.
+   */
   function setParameter(name, value) {
     const p = state.parameters[name];
     p.value = value; globals[name] = value;
@@ -265,6 +333,10 @@
     motion(); save();
   }
 
+  /**
+   * Creates a slider with min/max fields and an animate button for a parameter.
+   * @returns {HTMLElement} The slider box.
+   */
   function createSlider(name) {
     const p = state.parameters[name];
     const title = el('span', { className: 'name' });
@@ -310,6 +382,9 @@
   }
 
   let parameterSignature = '';
+  /**
+   * Rebuilds the Parameters panel when the set of parameters changes.
+   */
   function updateParameters() {
     for (const d of sliders) if (!d.box.isConnected) sliders.delete(d);
     const list = compiled.parameters;
@@ -325,6 +400,9 @@
     sliders.forEach((d) => d.refresh());
   }
 
+  /**
+   * Updates the live status of points and computed constants.
+   */
   function updateValues() {
     const f4 = (v) => (Number.isFinite(v) ? String(Number(v.toPrecision(6))).replace(/-/g, '−') : 'undefined');
     state.lines.forEach((l, i) => {
@@ -336,6 +414,9 @@
   }
 
   let animation = 0, previous = 0;
+  /**
+   * Runs the frame loop that moves animated parameters back and forth between min and max.
+   */
   function startAnimation() {
     if (animation || !animating.size) return;
     previous = performance.now();
@@ -356,12 +437,20 @@
     animation = requestAnimationFrame(step);
   }
 
+  /**
+   * Rebuilds every row from `state.lines` and recompiles.
+   */
   function mountList() {
     rows.clear(); sliders.clear(); parameterSignature = null;
     $('#list').textContent = '';
     state.lines.forEach((l) => $('#list').append(createRow(l).li));
     recompile();
   }
+  /**
+   * Inserts a new formula line and focuses it (maximum 100 lines).
+   * @param {string} [text] Initial formula.
+   * @param {number} [pos] Insert position.
+   */
   function add(text = '', pos = state.lines.length) {
     if (state.lines.length >= 100) return;
     const used = new Set(state.lines.map((l) => l.color));
@@ -375,6 +464,9 @@
     recompile();
     f.input.focus();
   }
+  /**
+   * Removes a line; an empty line is added if none remain.
+   */
   function remove(l) {
     closeStyle();
     const i = state.lines.indexOf(l);
@@ -386,8 +478,13 @@
     rows.get(state.lines[Math.max(0, i - 1)].id).input.focus();
   }
 
+
+  // ---- Style popup ----
   const popup = $('#stylePopup');
   let editing = null, anchor = null;
+  /**
+   * Opens the color, thickness and stroke popup next to a row's color button.
+   */
   function openStyle(l, button) {
     if (editing === l) { closeStyle(); return; }
     editing = l; anchor = button;
@@ -410,6 +507,9 @@
     popup.style.top = `${Math.max(8, Math.min(r.bottom + 8, innerHeight - popup.offsetHeight - 8))}px`;
     cont.firstChild.focus();
   }
+  /**
+   * Applies one style property to the line being edited.
+   */
   function changeStyle(key, value) {
     if (!editing) return;
     editing[key] = value;
@@ -431,6 +531,9 @@
   });
   $('.scrollable').addEventListener('scroll', closeStyle);
 
+  /**
+   * Applies `state.theme` to the page and the canvas colors.
+   */
   function applyTheme() {
     document.documentElement.dataset.theme = state.theme;
     readTheme();
@@ -440,9 +543,17 @@
   }
   $('#btnTheme').addEventListener('click', () => {
     state.theme = state.theme === 'light' ? 'dark' : 'light';
+    state.themeManual = true;
+    applyTheme(); save();
+  });
+  systemDark.addEventListener('change', () => {
+    if (state.themeManual) return;
+    state.theme = systemDark.matches ? 'dark' : 'light';
     applyTheme(); save();
   });
 
+
+  // ---- Canvas interaction ----
   const canvas = $('#graph'), tooltip = $('#tooltip'), coords = $('#coords');
   const pointers = new Map();
   const position = (e) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
@@ -451,6 +562,9 @@
     if (tooltip.hidden) return;
     tooltip.hidden = true;
   }
+  /**
+   * Updates the coordinates readout, tooltip and highlighted point under the pointer.
+   */
   function track(X, Y) {
     coords.textContent = `x: ${shortNum(graph.mx(X))}   y: ${shortNum(graph.my(Y))}`;
     const p = graph.nearest(X, Y);
@@ -525,8 +639,13 @@
     state.options[c.dataset.op] = c.checked; redraw(); save();
   }));
 
+
+  // ---- Examples and clearing ----
   const selector = $('#examples');
   Object.keys(EXAMPLES).forEach((n) => selector.append(el('option', { value: n, textContent: n })));
+  /**
+   * Replaces the current graph with one of the EXAMPLES.
+   */
   function loadExample(name) {
     animating.clear(); closeStyle();
     nextId = 1;
@@ -544,9 +663,31 @@
   }
   selector.addEventListener('change', () => { if (selector.value) loadExample(selector.value); selector.value = ''; });
 
+  /**
+   * Resets to a single blank formula line with no curves.
+   */
+  function startEmpty() {
+    animating.clear(); closeStyle();
+    nextId = 1;
+    state.lines = [newLine()];
+    state.parameters = {};
+    state.active = state.lines[0].id;
+    graph.home();
+    mountList();
+  }
+
   $('#btnNew').addEventListener('click', () => add());
+  $('#btnClear').addEventListener('click', () => {
+    const used = state.lines.some((l) => l.text.trim());
+    if (used && !window.confirm('Remove all formulas and start with an empty graph?')) return;
+    startEmpty();
+    $('#notice').textContent = 'Graph cleared.';
+  });
   $('#btnHelp').addEventListener('click', () => $('#help').showModal());
 
+  /**
+   * Downloads a Blob as a file.
+   */
   function download(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = el('a', { href: url, download: filename });
@@ -591,6 +732,8 @@
     }
   });
 
+
+  // ---- Startup ----
   graph.resize();
   graph.home();
   let restored = false;
@@ -600,6 +743,8 @@
   } catch (_) {}
   applyTheme();
   syncOptions();
-  if (restored) mountList(); else loadExample('Getting started');
+  if (restored) mountList(); else startEmpty();
   new ResizeObserver(() => { graph.resize(); motion(); }).observe(canvas);
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
 })();
