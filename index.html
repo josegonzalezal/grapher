@@ -4,11 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: file:; connect-src 'none'">
+  <meta name="color-scheme" content="light dark">
   <title>Grapher</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b45d4'/%3E%3Cpath d='M4 16h24M16 4v24' stroke='%23fff' stroke-opacity='.45' stroke-width='1.5'/%3E%3Cpath d='M5 25C11 25 12 7 16 7s5 18 11 18' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+  <!-- Main layout -->
   <main class="app">
+    <!-- Side panel: formulas, parameters and settings -->
     <aside class="panel" aria-label="Formulas and settings">
       <header class="header">
         <h1>Grapher</h1>
@@ -50,6 +54,7 @@
             <button type="button" id="btnPng">Save PNG image</button>
             <button type="button" id="btnExport">Save project</button>
             <button type="button" id="btnImport">Open project</button>
+            <button type="button" id="btnClear">Clear all</button>
             <input type="file" id="fileInput" accept=".json,application/json" hidden>
           </div>
           <p id="notice" class="notice" role="status"></p>
@@ -57,6 +62,7 @@
       </div>
     </aside>
 
+    <!-- Graph area -->
     <section class="canvas-wrap" aria-label="Graph">
       <canvas id="graph" tabindex="0" aria-label="Interactive graph. Arrow keys to pan, + and − to zoom in or out, 0 to reset view."></canvas>
       <div class="zoom">
@@ -71,6 +77,7 @@
     </section>
   </main>
 
+  <!-- Curve style popup -->
   <div id="stylePopup" class="popup" role="dialog" aria-label="Curve style" hidden>
     <div id="swatches" class="swatches"></div>
     <label>Custom color <input type="color" id="customColor"></label>
@@ -84,28 +91,31 @@
     </label>
   </div>
 
+  <!-- Help dialog -->
   <dialog id="help">
     <h2>How to write formulas</h2>
     <table>
-      <tr><th>Function</th><td><code>y = x^2 - 3</code> or just <code>x^2 - 3</code></td></tr>
-      <tr><th>x as a function of y</th><td><code>x = sin(y)</code></td></tr>
-      <tr><th>Implicit equation</th><td><code>x^2 + y^2 = 25</code></td></tr>
-      <tr><th>Inequality</th><td><code>y &lt; 2x + 1</code>, <code>x^2 + y^2 &lt;= 4</code></td></tr>
-      <tr><th>Polar</th><td><code>r = 2 + cos(5θ)</code> (you can type <code>theta</code>)</td></tr>
-      <tr><th>Parametric</th><td><code>(4cos(3t), 4sin(2t))</code></td></tr>
-      <tr><th>Point</th><td><code>(2, f(2))</code></td></tr>
-      <tr><th>Define and reuse</th><td><code>f(x) = x^3 - x</code>, then <code>f(x - 2)</code></td></tr>
-      <tr><th>Derivatives</th><td><code>f'(x)</code>, <code>f''(x)</code> or the “Derivative” button</td></tr>
-      <tr><th>Parameters</th><td><code>a sin(b x)</code> creates sliders for a and b</td></tr>
-      <tr><th>Restrict domain</th><td><code>y = x^2 {-1 &lt; x &lt; 2}</code></td></tr>
-      <tr><th>Comment</th><td>Lines starting with <code>#</code> are not plotted</td></tr>
+      <tr><th scope="row">Function</th><td><code>y = x^2 - 3</code> or just <code>x^2 - 3</code></td></tr>
+      <tr><th scope="row">x as a function of y</th><td><code>x = sin(y)</code></td></tr>
+      <tr><th scope="row">Implicit equation</th><td><code>x^2 + y^2 = 25</code></td></tr>
+      <tr><th scope="row">Inequality</th><td><code>y &lt; 2x + 1</code>, <code>x^2 + y^2 &lt;= 4</code></td></tr>
+      <tr><th scope="row">Polar</th><td><code>r = 2 + cos(5θ)</code> (you can type <code>theta</code>)</td></tr>
+      <tr><th scope="row">Parametric</th><td><code>(4cos(3t), 4sin(2t))</code></td></tr>
+      <tr><th scope="row">Point</th><td><code>(2, f(2))</code></td></tr>
+      <tr><th scope="row">Define and reuse</th><td><code>f(x) = x^3 - x</code>, then <code>f(x - 2)</code></td></tr>
+      <tr><th scope="row">Derivatives</th><td><code>f'(x)</code>, <code>f''(x)</code> or the “Derivative” button</td></tr>
+      <tr><th scope="row">Parameters</th><td><code>a sin(b x)</code> creates sliders for a and b</td></tr>
+      <tr><th scope="row">Restrict domain</th><td><code>y = x^2 {-1 &lt; x &lt; 2}</code></td></tr>
+      <tr><th scope="row">Comment</th><td>Lines starting with <code>#</code> are not plotted</td></tr>
     </table>
     <p><strong>Functions:</strong> sin, cos, tan, sec, csc, cot, asin, acos, atan, atan2, sinh, cosh, tanh, sqrt (√), cbrt, root(n, x), abs or |x|, exp, ln, log (base 10), log2, log(base, x), floor, ceil, round, sign, min, max, mod, gamma, factorial (n!).</p>
     <p><strong>Constants:</strong> pi (π), e, tau (τ). Angles are in radians and decimals use a dot.</p>
     <p><strong>Mouse &amp; keyboard:</strong> drag to pan and use the scroll wheel to zoom. Shift + wheel scales only the x-axis; Alt + wheel scales only the y-axis. On touch screens, pinch to zoom. Enter adds a new formula.</p>
+    <p><strong>Saving:</strong> your formulas, sliders, view and settings are saved automatically in this browser and restored when you reload the page.</p>
     <form method="dialog"><button class="primary">Close</button></form>
   </dialog>
 
+  <!-- Scripts (order matters) -->
   <script src="js/formulas.js"></script>
   <script src="js/graph.js"></script>
   <script src="js/app.js"></script>
