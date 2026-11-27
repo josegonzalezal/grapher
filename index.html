@@ -52,10 +52,15 @@
           <summary>Save and open</summary>
           <div class="buttons">
             <button type="button" id="btnPng">Save PNG image</button>
+            <button type="button" id="btnSvg">Save SVG image</button>
+            <button type="button" id="btnTex">Save LaTeX (.tex)</button>
+            <button type="button" id="btnMml">Save MathML (.xml)</button>
             <button type="button" id="btnExport">Save project</button>
             <button type="button" id="btnImport">Open project</button>
+            <button type="button" id="btnImportMath">Import .tex / .xml</button>
             <button type="button" id="btnClear">Clear all</button>
             <input type="file" id="fileInput" accept=".json,application/json" hidden>
+            <input type="file" id="mathInput" accept=".tex,.xml,.mml,text/plain,application/xml,text/xml" hidden>
           </div>
           <p id="notice" class="notice" role="status"></p>
         </details>
@@ -111,7 +116,7 @@
     <p><strong>Functions:</strong> sin, cos, tan, sec, csc, cot, asin, acos, atan, atan2, sinh, cosh, tanh, sqrt (√), cbrt, root(n, x), abs or |x|, exp, ln, log (base 10), log2, log(base, x), floor, ceil, round, sign, min, max, mod, gamma, factorial (n!).</p>
     <p><strong>Constants:</strong> pi (π), e, tau (τ). Angles are in radians and decimals use a dot.</p>
     <p><strong>Mouse &amp; keyboard:</strong> drag to pan and use the scroll wheel to zoom. Shift + wheel scales only the x-axis; Alt + wheel scales only the y-axis. On touch screens, pinch to zoom. Enter adds a new formula.</p>
-    <p><strong>Saving:</strong> your formulas, sliders, view and settings are saved automatically in this browser and restored when you reload the page.</p>
+    <p><strong>Saving &amp; formats:</strong> state auto-saves in this browser; you can also export PNG or vector SVG graphs, save/load <code>.json</code> projects, or exchange formulas as LaTeX (<code>.tex</code>) and MathML (<code>.xml</code> / <code>.mml</code>).</p>
     <form method="dialog"><button class="primary">Close</button></form>
   </dialog>
 
