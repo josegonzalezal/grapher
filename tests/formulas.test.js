@@ -24,6 +24,7 @@ test('classifies the main formula kinds', () => {
     '(cos(t), sin(t))': 'parametric',
     '(cos(t), sin(t), t/4)': 'parametric3d',
     '(1, 2)': 'point',
+    '(1, 2, 3)': 'point3d',
     'a = 3': 'constant',
   };
   for (const [text, type] of Object.entries(kinds)) assert.equal(compile(text).line.type, type, text);
@@ -44,10 +45,15 @@ test('implicit multiplication and functions', () => {
   close(evalExplicit('y = x^(1/3)', -8), -2);
 });
 
-test('parameters become sliders', () => {
-  const { parameters, line } = compile('y = a sin(b x)', { a: 2, b: 3 });
+test('parameters become sliders and update dynamically', () => {
+  const globals = Object.create(null);
+  globals.a = 2;
+  globals.b = 3;
+  const { lines, parameters } = Formulas.compileAll(['y = a sin(b x)'], globals);
   assert.deepEqual(parameters, ['a', 'b']);
-  close(line.f(Math.PI / 6), 2);
+  close(lines[0].f(Math.PI / 6), 2);
+  globals.a = 4;
+  close(lines[0].f(Math.PI / 6), 4);
 });
 
 test('domain restriction returns NaN outside the domain', () => {
@@ -56,13 +62,33 @@ test('domain restriction returns NaN outside the domain', () => {
   close(line.f(2), 0.7);
 });
 
-test('custom functions and derivatives', () => {
-  const { lines } = Formulas.compileAll(['f(x) = x^2', "y = f'(x)"], Object.create(null));
+test('chained piecewise conditions enforce all constraints', () => {
+  const { line } = compile('y = x^2 {x >= -1, x <= 2}');
+  assert.ok(Number.isNaN(line.f(-2)));
+  assert.ok(Number.isNaN(line.f(3)));
+  close(line.f(1.5), 2.25);
+});
+
+test('custom functions, 2D surfaces, and derivatives', () => {
+  const { lines } = Formulas.compileAll([
+    'f(x) = x^2',
+    "y = f'(x)",
+    'g(x, y) = x + 2y',
+  ], Object.create(null));
   close(lines[1].f(3), 6, 1e-4);
+  assert.equal(lines[2].type, 'surface3d');
+  close(lines[2].f(1, 4), 9);
+});
+
+test('inequality inside check', () => {
+  const { line } = compile('x^2 + y^2 <= 9');
+  assert.equal(line.type, 'inequality');
+  assert.equal(line.inside(1, 1), true);
+  assert.equal(line.inside(3, 3), false);
 });
 
 test('errors are reported, not thrown', () => {
-  for (const text of ['y = (', 'y = 1 +', '2 = = 3', 'y = 3 $ x']) {
+  for (const text of ['y = (', 'y = 1 +', '2 = = 3', 'y = 3 $ x', 'y = x {x}']) {
     assert.equal(compile(text).line.type, 'error', text);
   }
 });
@@ -73,12 +99,17 @@ test('evaluateNumber', () => {
   assert.ok(Number.isNaN(Formulas.evaluateNumber('(')));
 });
 
-test('compileExpression never executes JavaScript', () => {
+test('compileExpression supports allowed ND variables and blocks arbitrary code', () => {
   const names = ['x', 'y', 'z', 'w', 'v', 'u', 't', 's', 'r', 'q', 'p', 'i', 'd'];
   const ok = Formulas.compileExpression('sin(x + y) * 1.4', names);
   assert.ok(ok.fn);
   close(ok.fn(1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4), Math.sin(3) * 1.4);
-  for (const text of ["Reflect.get(Math.sin,'cons'+'tructor')('1')()", 'alert(1)', 'process.exit()', 'foo(x)']) {
+
+  const indexed = Formulas.compileExpression('cos(i * 0.5) + d * 0.1', names);
+  assert.ok(indexed.fn);
+  close(indexed.fn(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5), Math.cos(1) + 0.5);
+
+  for (const text of ["Reflect.get(Math.sin,'cons'+'tructor')('1')()", 'alert(1)', 'process.exit()', 'foo(x)', 'x + m']) {
     assert.equal(Formulas.compileExpression(text, names).fn, null, text);
   }
 });
