@@ -1,25 +1,40 @@
+/**
+ * formulas.js - recursive-descent parser and compiler for 2D and 3D expressions.
+ * Exposes `Formulas` without using eval() or external libraries.
+ * @module Formulas
+ */
 (function (global) {
   'use strict';
 
   class FormulaError extends Error {}
+
   const fail = (m) => { throw new FormulaError(m); };
 
   function gamma(z) {
     if (z < 0.5) return Math.PI / (Math.sin(Math.PI * z) * gamma(1 - z));
     z -= 1;
-    const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
-      -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    const c = [
+      0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+      771.32342877765313, -176.61502916214059, 12.507343278686905,
+      -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+    ];
     let s = c[0];
     for (let i = 1; i < 9; i++) s += c[i] / (z + i);
     const t = z + 7.5;
     return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * s;
   }
+
   function factorial(n) {
     if (n < 0 && Number.isInteger(n)) return NaN;
     if (n > 170) return Infinity;
-    if (Number.isInteger(n)) { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; }
+    if (Number.isInteger(n)) {
+      let r = 1;
+      for (let i = 2; i <= n; i++) r *= i;
+      return r;
+    }
     return gamma(n + 1);
   }
+
   function root(n, x) {
     if (x < 0) return Number.isInteger(n) && Math.abs(n % 2) === 1 ? -Math.pow(-x, 1 / n) : NaN;
     return Math.pow(x, 1 / n);
@@ -39,13 +54,15 @@
     sign: [1, 1, Math.sign], min: [1, 99, Math.min], max: [1, 99, Math.max],
     mod: [2, 2, (a, b) => a - b * Math.floor(a / b)], gamma: [1, 1, gamma],
   };
+
   const ALIASES = {
     sen: 'sin', tg: 'tan', ctg: 'cot', cosec: 'csc', arcsin: 'asin', arcsen: 'asin', arccos: 'acos',
     arctan: 'atan', arctg: 'atan', asen: 'asin', senh: 'sinh', tgh: 'tanh', raiz: 'sqrt', signo: 'sign',
   };
+
   const CONSTANTS = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI };
   const INVERSES = { sin: 'asin', cos: 'acos', tan: 'atan', sinh: 'asinh', cosh: 'acosh', tanh: 'atanh' };
-  const RESERVED = new Set(['x', 'y', 'θ']);
+  const RESERVED = new Set(['x', 'y', 'z', 't', 'θ']);
 
   function tokenize(text, custom) {
     const s = text.replace(/[−–]/g, '-').replace(/[·×∙]/g, '*').replace(/÷/g, '/')
@@ -69,10 +86,12 @@
         if (known) {
           let v = ALIASES[known] || known;
           if (v === 'theta') v = 'θ';
-          out.push({ t: 'id', v }); i += known.length;
+          out.push({ t: 'id', v });
+          i += known.length;
         } else {
-          let v = c; i++;
-          if (!/[xye]/.test(c)) {
+          let v = c;
+          i++;
+          if (!/[xyze]/.test(c)) {
             m = /^(_[A-Za-z0-9]+|\d+)/.exec(s.slice(i));
             if (m) { v += m[0]; i += m[0].length; }
           }
@@ -80,7 +99,7 @@
         }
         continue;
       }
-      const pair = s.substr(i, 2);
+      const pair = s.slice(i, i + 2);
       if (pair === '<=' || pair === '>=') { out.push({ t: pair }); i += 2; continue; }
       if ("+-*/^!(),|{}=<>'".includes(c)) { out.push({ t: c }); i++; continue; }
       fail(`Unrecognized character: “${c}”`);
@@ -92,7 +111,10 @@
     let p = 0, bars = 0;
     const peek = () => tokens[p] || { t: 'end' };
     const take = () => tokens[p++] || { t: 'end' };
-    const expect = (t) => { if (peek().t !== t) fail(t === ')' ? 'Missing closing parenthesis' : `Missing “${t}”`); p++; };
+    const expect = (t) => {
+      if (peek().t !== t) fail(t === ')' ? 'Missing closing parenthesis' : `Missing “${t}”`);
+      p++;
+    };
     const isFunction = (n) => Object.prototype.hasOwnProperty.call(FUNCTIONS, n) || custom.has(n);
     const startsFactor = () => {
       const k = peek();
@@ -101,15 +123,23 @@
 
     function expr() {
       let a = term();
-      while (peek().t === '+' || peek().t === '-') { const op = take().t; a = { t: 'bin', op, a, b: term() }; }
+      while (peek().t === '+' || peek().t === '-') {
+        const op = take().t;
+        a = { t: 'bin', op, a, b: term() };
+      }
       return a;
     }
     function term() {
       let a = unary();
       for (;;) {
-        if (peek().t === '*' || peek().t === '/') { const op = take().t; a = { t: 'bin', op, a, b: unary() }; }
-        else if (startsFactor()) a = { t: 'bin', op: '*', a, b: power() };
-        else return a;
+        if (peek().t === '*' || peek().t === '/') {
+          const op = take().t;
+          a = { t: 'bin', op, a, b: unary() };
+        } else if (startsFactor()) {
+          a = { t: 'bin', op: '*', a, b: power() };
+        } else {
+          return a;
+        }
       }
     }
     function unary() {
@@ -165,7 +195,9 @@
       } else {
         if (peek().t === 'end') fail(`Missing argument for ${f}`);
         let a = unary();
-        while (startsFactor() && !(peek().t === 'id' && isFunction(peek().v))) a = { t: 'bin', op: '*', a, b: power() };
+        while (startsFactor() && !(peek().t === 'id' && isFunction(peek().v))) {
+          a = { t: 'bin', op: '*', a, b: power() };
+        }
         args = [a];
       }
       if (exponent && exponent.t === 'neg' && exponent.a.t === 'num' && exponent.a.v === 1 && INVERSES[f]) {
@@ -176,7 +208,9 @@
     }
 
     const items = list();
-    if (p < tokens.length) fail(peek().t === ')' ? 'Extra closing parenthesis' : `Unexpected “${peek().v ?? peek().t}” here`);
+    if (p < tokens.length) {
+      fail(peek().t === ')' ? 'Extra closing parenthesis' : `Unexpected “${peek().v ?? peek().t}” here`);
+    }
     return items.length === 1 ? items[0] : { t: 'tuple', items };
   }
 
@@ -186,8 +220,12 @@
     for (const k of tokens) {
       if (k.t === '(') level++;
       if (k.t === ')') level--;
-      if (level === 0 && ['=', '<', '>', '<=', '>='].includes(k.t)) { ops.push(k.t); parts.push([]); }
-      else parts[parts.length - 1].push(k);
+      if (level === 0 && ['=', '<', '>', '<=', '>='].includes(k.t)) {
+        ops.push(k.t);
+        parts.push([]);
+      } else {
+        parts[parts.length - 1].push(k);
+      }
     }
     return { parts, ops };
   }
@@ -198,10 +236,20 @@
       case 'var':
         if (!(node.n in CONSTANTS)) acc.add(node.n);
         break;
-      case 'neg': case 'fact': variables(node.a, defs, acc, stack); break;
-      case 'bin': variables(node.a, defs, acc, stack); variables(node.b, defs, acc, stack); break;
-      case 'tuple': node.items.forEach((n) => variables(n, defs, acc, stack)); break;
-      case 'call': node.args.forEach((n) => variables(n, defs, acc, stack)); break;
+      case 'neg':
+      case 'fact':
+        variables(node.a, defs, acc, stack);
+        break;
+      case 'bin':
+        variables(node.a, defs, acc, stack);
+        variables(node.b, defs, acc, stack);
+        break;
+      case 'tuple':
+        node.items.forEach((n) => variables(n, defs, acc, stack));
+        break;
+      case 'call':
+        node.args.forEach((n) => variables(n, defs, acc, stack));
+        break;
     }
     return acc;
   }
@@ -236,10 +284,13 @@
           case '*': return (s) => a(s) * b(s);
           case '/': return (s) => a(s) / b(s);
           default: {
-            // Odd-denominator rational exponents allow real roots for negative bases
             const e = node.b;
-            if (e.t === 'bin' && e.op === '/' && e.a.t === 'num' && e.b.t === 'num' &&
-                Number.isInteger(e.a.v) && Number.isInteger(e.b.v) && e.b.v % 2 === 1) {
+            if (
+              e.t === 'bin' && e.op === '/' &&
+              e.a.t === 'num' && e.b.t === 'num' &&
+              Number.isInteger(e.a.v) && Number.isInteger(e.b.v) &&
+              e.b.v % 2 === 1
+            ) {
               const num = e.a.v;
               return (s) => {
                 const base = a(s), r = Math.pow(Math.abs(base), b(s));
@@ -291,6 +342,7 @@
     const h = 1e-6 * Math.max(1, Math.abs(x));
     return (f(x + h) - f(x - h)) / (2 * h);
   }
+
   function derivative2(f, x) {
     const h = 1e-4 * Math.max(1, Math.abs(x));
     return (f(x + h) - 2 * f(x) + f(x - h)) / (h * h);
@@ -303,7 +355,9 @@
     const custom = new Set();
     texts.forEach((t) => {
       const m = NAME_RE.exec(t);
-      if (m && !['x', 'y', 'r', 'e'].includes(m[1]) && !(m[1] in FUNCTIONS) && !(m[1] in ALIASES)) custom.add(m[1]);
+      if (m && !['x', 'y', 'z', 'r', 'e'].includes(m[1]) && !(m[1] in FUNCTIONS) && !(m[1] in ALIASES)) {
+        custom.add(m[1]);
+      }
     });
 
     const lines = texts.map((text) => {
@@ -339,7 +393,8 @@
       for (const k of inside) {
         if (k.t === '(') level++;
         if (k.t === ')') level--;
-        if (k.t === ',' && level === 0) groups.push([]); else groups[groups.length - 1].push(k);
+        if (k.t === ',' && level === 0) groups.push([]);
+        else groups[groups.length - 1].push(k);
       }
       for (const g of groups) {
         const { parts, ops } = splitRelations(g);
@@ -366,6 +421,9 @@
     if (/^\s*y\s*\(\s*x\s*\)\s*=/.test(text)) {
       return { ...base, type: 'explicit', ast: parse(parts[1], custom) };
     }
+    if (/^\s*z\s*\(\s*x\s*,\s*y\s*\)\s*=/.test(text)) {
+      return { ...base, type: 'surface3d', ast: parse(parts[1], custom) };
+    }
 
     const sides = parts.map((q) => parse(q, custom));
     const vars = sides.map((n) => variables(n, defs));
@@ -374,9 +432,13 @@
     if (!ops.length) {
       const a = sides[0];
       if (a.t === 'tuple') {
-        if (a.items.length !== 2) fail('A point or parametric curve needs two components: (x, y)');
+        if (a.items.length === 3) {
+          return { ...base, type: vars[0].has('t') ? 'parametric3d' : 'point3d', ast: a };
+        }
+        if (a.items.length !== 2) fail('A point or parametric curve needs 2 or 3 components');
         return { ...base, type: vars[0].has('t') ? 'parametric' : 'point', ast: a };
       }
+      if (vars[0].has('z')) fail('Add “=” to plot an equation with z');
       if (vars[0].has('y')) fail('Add “=” to plot an equation with y');
       if (vars[0].has('θ')) return { ...base, type: 'polar', ast: a };
       return { ...base, type: 'explicit', ast: a };
@@ -385,12 +447,19 @@
     const op = ops[0];
     const [lhs, rhs] = sides;
     if (op === '=') {
-      if (isVar(0, 'y') && !vars[1].has('y')) return { ...base, type: 'explicit', ast: rhs };
-      if (isVar(1, 'y') && !vars[0].has('y')) return { ...base, type: 'explicit', ast: lhs };
-      if (isVar(0, 'x') && !vars[1].has('x')) return { ...base, type: 'explicitX', ast: rhs };
-      if (isVar(0, 'r') && !vars[1].has('x') && !vars[1].has('y') && !vars[1].has('r')) return { ...base, type: 'polar', ast: rhs };
-      if (lhs.t === 'var' && !['x', 'y', 'θ', 'e', 'pi', 'tau'].includes(lhs.n) &&
-          !vars[1].has('x') && !vars[1].has('y') && !vars[1].has('θ')) {
+      if (isVar(0, 'z') && !vars[1].has('z')) return { ...base, type: 'surface3d', ast: rhs };
+      if (isVar(1, 'z') && !vars[0].has('z')) return { ...base, type: 'surface3d', ast: lhs };
+      if (isVar(0, 'y') && !vars[1].has('y') && !vars[1].has('z')) return { ...base, type: 'explicit', ast: rhs };
+      if (isVar(1, 'y') && !vars[0].has('y') && !vars[0].has('z')) return { ...base, type: 'explicit', ast: lhs };
+      if (isVar(0, 'x') && !vars[1].has('x') && !vars[1].has('z')) return { ...base, type: 'explicitX', ast: rhs };
+      if (isVar(0, 'r') && !vars[1].has('x') && !vars[1].has('y') && !vars[1].has('z') && !vars[1].has('r')) {
+        return { ...base, type: 'polar', ast: rhs };
+      }
+      if (
+        lhs.t === 'var' &&
+        !['x', 'y', 'z', 't', 'θ', 'e', 'pi', 'tau'].includes(lhs.n) &&
+        !vars[1].has('x') && !vars[1].has('y') && !vars[1].has('z') && !vars[1].has('θ')
+      ) {
         if (defs.consts.has(lhs.n)) fail(`“${lhs.n}” is already defined`);
         const literal = rhs.t === 'num' || (rhs.t === 'neg' && rhs.a.t === 'num');
         const def = { ast: rhs, literal, value: literal ? (rhs.t === 'num' ? rhs.v : -rhs.a.v) : null };
@@ -398,7 +467,7 @@
         return { ...base, type: 'constant', name: lhs.n, ...def };
       }
     }
-    if (!vars.some((v) => v.has('x') || v.has('y'))) fail('The equation must contain x or y');
+    if (!vars.some((v) => v.has('x') || v.has('y') || v.has('z'))) fail('The equation must contain x, y or z');
     const ast = { t: 'bin', op: '-', a: lhs, b: rhs };
     if (op === '=') return { ...base, type: 'implicit', ast };
     const fill = { ...base, type: 'inequality', ast, op };
@@ -411,7 +480,10 @@
   }
 
   const COMPARE = {
-    '<': (a, b) => a < b, '>': (a, b) => a > b, '<=': (a, b) => a <= b, '>=': (a, b) => a >= b,
+    '<': (a, b) => a < b,
+    '>': (a, b) => a > b,
+    '<=': (a, b) => a <= b,
+    '>=': (a, b) => a >= b,
     '=': (a, b) => Math.abs(a - b) < 1e-9,
   };
 
@@ -435,10 +507,19 @@
           r.type = v === 'y' ? 'explicitX' : v === 'θ' ? 'polar' : 'explicit';
           r.f = (u) => { s[v] = u; const w = f(s); if (c && !c(s)) return NaN; return w; };
           if (r.type === 'polar') r.usesRange = true;
+        } else if (l.params.length === 2 && l.params[0] === 'x' && l.params[1] === 'y') {
+          r.type = 'surface3d';
+          r.f = (x, y) => { s.x = x; s.y = y; const z = f(s); if (c) { s.z = z; if (!c(s)) return NaN; } return z; };
         }
         return r;
       }
-      case 'explicit': case 'explicitX': {
+      case 'surface3d': {
+        const f = make(l.ast, ['x', 'y']), c = condition(['x', 'y', 'z']);
+        r.f = (x, y) => { s.x = x; s.y = y; const z = f(s); if (c) { s.z = z; if (!c(s)) return NaN; } return z; };
+        return r;
+      }
+      case 'explicit':
+      case 'explicitX': {
         const ind = l.type === 'explicit' ? 'x' : 'y', dep = l.type === 'explicit' ? 'y' : 'x';
         const f = make(l.ast, [ind]), c = condition(['x', 'y']);
         r.f = (u) => { s[ind] = u; const w = f(s); if (c) { s[dep] = w; if (!c(s)) return NaN; } return w; };
@@ -464,23 +545,42 @@
         };
         return r;
       }
+      case 'parametric3d': {
+        const fx = make(l.ast.items[0], ['t']), fy = make(l.ast.items[1], ['t']), fz = make(l.ast.items[2], ['t']);
+        const c = condition(['t', 'x', 'y', 'z']);
+        r.usesRange = true;
+        r.f = (u) => {
+          s.t = u; const x = fx(s), y = fy(s), z = fz(s);
+          if (c) { s.x = x; s.y = y; s.z = z; if (!c(s)) return [NaN, NaN, NaN]; }
+          return [x, y, z];
+        };
+        return r;
+      }
       case 'point': {
         const fx = make(l.ast.items[0], []), fy = make(l.ast.items[1], []);
         r.f = () => [fx(s), fy(s)];
         return r;
       }
-      case 'implicit': case 'inequality': {
-        const f = make(l.ast, ['x', 'y']), c = condition(['x', 'y']);
-        r.F = (x, y) => { s.x = x; s.y = y; if (c && !c(s)) return NaN; return f(s); };
+      case 'point3d': {
+        const fx = make(l.ast.items[0], []), fy = make(l.ast.items[1], []), fz = make(l.ast.items[2], []);
+        r.f = () => [fx(s), fy(s), fz(s)];
+        return r;
+      }
+      case 'implicit':
+      case 'inequality': {
+        const f = make(l.ast, ['x', 'y', 'z']), c = condition(['x', 'y', 'z']);
+        r.F = (x, y, z = 0) => { s.x = x; s.y = y; s.z = z; if (c && !c(s)) return NaN; return f(s); };
         if (l.type === 'inequality') {
           r.op = l.op;
-          r.inside = (x, y) => COMPARE[l.op](r.F(x, y), 0);
+          r.inside = (x, y, z = 0) => COMPARE[l.op](r.F(x, y, z), 0);
           if (l.border) {
             const ind = l.border.axis === 'y' ? 'x' : 'y';
             const g = make(l.border.ast, [ind]);
             const s2 = Object.create(globals);
-            r.border = { axis: l.border.axis, greater: l.border.greater, restricted: !!c,
-              f: (u) => { s2[ind] = u; return g(s2); } };
+            r.border = {
+              axis: l.border.axis, greater: l.border.greater, restricted: !!c,
+              f: (u) => { s2[ind] = u; return g(s2); },
+            };
           }
         }
         return r;
@@ -498,8 +598,10 @@
   function evaluateNumber(text) {
     try {
       const ast = parse(tokenize(String(text), []), new Set());
-      const ctx = { defs: { funcs: new Map(), consts: new Map() }, globals: Object.create(null),
-        parameters: new Set(), stack: new Set(), locals: new Set() };
+      const ctx = {
+        defs: { funcs: new Map(), consts: new Map() }, globals: Object.create(null),
+        parameters: new Set(), stack: new Set(), locals: new Set(),
+      };
       const f = compile(ast, ctx);
       return ctx.parameters.size ? NaN : f(ctx.globals);
     } catch (_) { return NaN; }

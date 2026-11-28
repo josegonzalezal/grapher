@@ -3,126 +3,217 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: file:; connect-src 'none'">
-  <meta name="color-scheme" content="light dark">
   <title>Grapher</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b45d4'/%3E%3Cpath d='M4 16h24M16 4v24' stroke='%23fff' stroke-opacity='.45' stroke-width='1.5'/%3E%3Cpath d='M5 25C11 25 12 7 16 7s5 18 11 18' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-  <!-- Main layout -->
-  <main class="app">
-    <!-- Side panel: formulas, parameters and settings -->
-    <aside class="panel" aria-label="Formulas and settings">
-      <header class="header">
-        <h1>Grapher</h1>
-        <button type="button" id="btnTheme" class="icon" aria-label="Switch between light and dark mode" title="Light / dark mode">
-          <svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
-          <svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
-        </button>
-        <button type="button" id="btnHelp" class="icon" aria-label="Help" title="Help">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1.9-1.1 1.8M12 17h.01"/></svg>
-        </button>
-      </header>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 28 28" aria-hidden="true">
+        <rect x="2" y="2" width="24" height="24" rx="6" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+        <path d="M5 20 C 10 8, 12 8, 14 14 S 18 20, 23 8" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+      <span class="title">Grapher</span>
+    </div>
+    <nav class="menu">
+      <button type="button" class="pill" id="btn-panel" aria-pressed="true" title="Toggle sidebar">Expressions</button>
+      <button type="button" class="pill" id="btn-mode3d" aria-pressed="false" title="Toggle 3D / ND plotting mode">3D</button>
+      <button type="button" class="pill" id="btn-examples" aria-expanded="false" aria-haspopup="true">Examples</button>
+      <button type="button" class="pill" id="btn-help">Guide</button>
+      <button type="button" class="icon-btn" id="btn-theme" title="Toggle dark mode" aria-label="Toggle dark mode">☾</button>
+    </nav>
+  </header>
 
-      <div class="scrollable">
-        <ol id="list" class="list"></ol>
-        <div class="actions">
-          <button type="button" id="btnNew" class="primary">Add formula</button>
-          <select id="examples" aria-label="Load an example"><option value="">Load example…</option></select>
+  <div class="workspace">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <span>Expressions</span>
+        <div class="sidebar-actions">
+          <button type="button" class="small-btn" id="btn-add">+ Add</button>
+          <button type="button" class="small-btn" id="btn-clear">Clear</button>
         </div>
+      </div>
 
-        <section id="secParameters" hidden>
-          <h2>Parameters</h2>
-          <div id="parameters"></div>
-        </section>
+      <div class="list" id="formula-list" role="list"></div>
 
-        <details class="settings" open>
-          <summary>View</summary>
-          <div class="options">
-            <label><input type="checkbox" data-op="grid"> Grid</label>
-            <label><input type="checkbox" data-op="axes"> Axes and numbers</label>
-            <label><input type="checkbox" data-op="polar"> Polar grid</label>
-            <label><input type="checkbox" data-op="pi"> x-axis in multiples of π</label>
-            <label><input type="checkbox" data-op="notables"> Key points</label>
-          </div>
-        </details>
+      <div class="section" id="params-section" hidden>
+        <div class="section-head"><span>Parameters</span></div>
+        <div class="params" id="params"></div>
+      </div>
 
-        <details class="settings">
-          <summary>Save and open</summary>
-          <div class="buttons">
-            <button type="button" id="btnPng">Save PNG image</button>
-            <button type="button" id="btnSvg">Save SVG image</button>
-            <button type="button" id="btnTex">Save LaTeX (.tex)</button>
-            <button type="button" id="btnMml">Save MathML (.xml)</button>
-            <button type="button" id="btnExport">Save project</button>
-            <button type="button" id="btnImport">Open project</button>
-            <button type="button" id="btnImportMath">Import .tex / .xml</button>
-            <button type="button" id="btnClear">Clear all</button>
-            <input type="file" id="fileInput" accept=".json,application/json" hidden>
-            <input type="file" id="mathInput" accept=".tex,.xml,.mml,text/plain,application/xml,text/xml" hidden>
-          </div>
-          <p id="notice" class="notice" role="status"></p>
-        </details>
+      <div class="section">
+        <div class="section-head">
+          <span>View</span>
+          <button type="button" class="link-btn" id="btn-home">Home</button>
+        </div>
+        <div class="view-grid">
+          <label>x min <input type="text" id="xmin"></label>
+          <label>x max <input type="text" id="xmax"></label>
+          <label>y min <input type="text" id="ymin"></label>
+          <label>y max <input type="text" id="ymax"></label>
+        </div>
+        <div class="toggles">
+          <label class="check"><input type="checkbox" id="opt-grid" checked> Grid</label>
+          <label class="check"><input type="checkbox" id="opt-axes" checked> Axes</label>
+          <label class="check"><input type="checkbox" id="opt-trace" checked> Trace</label>
+          <label class="check"><input type="checkbox" id="opt-equal"> Equal scale</label>
+        </div>
+      </div>
+
+      <div class="keypad" id="keypad" aria-label="Math symbols">
+        <button type="button" data-ins="x">x</button>
+        <button type="button" data-ins="y">y</button>
+        <button type="button" data-ins="z">z</button>
+        <button type="button" data-ins="pi">π</button>
+        <button type="button" data-ins="theta">θ</button>
+        <button type="button" data-ins="^2">x²</button>
+        <button type="button" data-ins="^">xʸ</button>
+        <button type="button" data-ins="sqrt(">√</button>
+        <button type="button" data-ins="||">|x|</button>
+        <button type="button" data-ins="sin(">sin</button>
+        <button type="button" data-ins="cos(">cos</button>
+        <button type="button" data-ins="tan(">tan</button>
+        <button type="button" data-ins="ln(">ln</button>
+        <button type="button" data-ins="log(">log</button>
+        <button type="button" data-ins="e^">eˣ</button>
+        <button type="button" data-ins=" ≤ ">≤</button>
+        <button type="button" data-ins=" ≥ ">≥</button>
+        <button type="button" data-ins="{}">{ }</button>
       </div>
     </aside>
 
-    <!-- Graph area -->
-    <section class="canvas-wrap" aria-label="Graph">
-      <canvas id="graph" tabindex="0" aria-label="Interactive graph. Arrow keys to pan, + and − to zoom in or out, 0 to reset view."></canvas>
-      <div class="zoom">
-        <button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in">+</button>
-        <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out">−</button>
-        <button type="button" data-zoom="home" aria-label="Reset to initial view" title="Initial view">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11 12 4l8 7M6.5 9.5V20h11V9.5"/></svg>
-        </button>
-      </div>
-      <div id="tooltip" class="tooltip" hidden></div>
-      <output id="coords" class="coords"></output>
-    </section>
-  </main>
+    <div class="splitter" id="splitter" title="Drag to resize"></div>
 
-  <!-- Curve style popup -->
-  <div id="stylePopup" class="popup" role="dialog" aria-label="Curve style" hidden>
-    <div id="swatches" class="swatches"></div>
-    <label>Custom color <input type="color" id="customColor"></label>
-    <label>Thickness <input type="range" id="thickness" min="1" max="8" step="0.5"></label>
-    <label>Stroke
-      <select id="stroke">
-        <option value="solid">Solid</option>
-        <option value="dashed">Dashed</option>
-        <option value="dotted">Dotted</option>
-      </select>
-    </label>
+    <main class="stage">
+      <canvas id="canvas"></canvas>
+      <canvas id="canvas3d" hidden></canvas>
+
+      <div class="perf-hud" id="perf-hud" hidden>
+        <div class="perf-row">
+          <span class="perf-badge" id="perf-rating">Smooth</span>
+          <span class="perf-stat"><strong id="perf-fps">60</strong> FPS</span>
+          <span class="perf-stat"><strong id="perf-frame">0.0</strong> ms</span>
+          <span class="perf-stat">Mesh <strong id="perf-mesh">0.0</strong> ms</span>
+          <span class="perf-stat"><strong id="perf-tris">0</strong> tris</span>
+        </div>
+        <div class="perf-controls">
+          <label class="perf-select-wrap">
+            <span>Mesh</span>
+            <select id="mesh-quality">
+              <option value="low">Low (32×32)</option>
+              <option value="medium" selected>Medium (56×56)</option>
+              <option value="high">High (88×88)</option>
+              <option value="ultra">Ultra (136×136)</option>
+            </select>
+          </label>
+          <button type="button" class="small-btn" id="btn-revolve" aria-pressed="false">Revolve 3D</button>
+          <button type="button" class="small-btn" id="btn-stress">Benchmark</button>
+        </div>
+      </div>
+
+      <div class="nd-bar" id="nd-bar" hidden>
+        <label class="nd-field">
+          <span>Dim</span>
+          <select id="nd-dim">
+            <option value="3">3D</option>
+            <option value="4" selected>4D</option>
+            <option value="5">5D</option>
+            <option value="6">6D</option>
+            <option value="7">7D</option>
+            <option value="8">8D</option>
+            <option value="9">9D</option>
+            <option value="10">10D</option>
+            <option value="11">11D</option>
+          </select>
+        </label>
+        <label class="nd-field">
+          <span>Shape</span>
+          <select id="nd-shape">
+            <option value="hypercube" selected>Hypercube</option>
+            <option value="orthoplex">Orthoplex</option>
+            <option value="simplex">Simplex</option>
+          </select>
+        </label>
+        <button type="button" class="small-btn" id="btn-nd-spin" aria-pressed="true">Spin ND</button>
+        <button type="button" class="small-btn" id="btn-nd-mech" aria-pressed="false" title="Add structural mech between edges">Edge Mech</button>
+      </div>
+
+      <div class="nd-drawer" id="nd-drawer" hidden>
+        <div class="nd-formula-row">
+          <input type="text" id="nd-formula" placeholder="ND formula, e.g. w = sin(x + y) * 1.4" spellcheck="false" autocomplete="off">
+          <button type="button" class="small-btn" id="btn-nd-formula-clear">Reset</button>
+        </div>
+        <div class="nd-formula-err" id="nd-formula-err" hidden></div>
+
+        <div class="nd-mech-row" id="nd-mech-row">
+          <label class="nd-field">
+            <span>Mech</span>
+            <select id="nd-mech-style">
+              <option value="truss" selected>Truss</option>
+              <option value="lattice">Lattice</option>
+              <option value="ribs">Ribs</option>
+            </select>
+          </label>
+          <label class="nd-field">
+            <span>Segs</span>
+            <select id="nd-mech-segs">
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="6">6</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="nd-planes" id="nd-planes"></div>
+      </div>
+
+      <div class="hud">
+        <div class="coords" id="coords">0, 0</div>
+        <div class="zoom-bar">
+          <button type="button" id="btn-zin" title="Zoom in">+</button>
+          <button type="button" id="btn-zout" title="Zoom out">−</button>
+          <button type="button" id="btn-zhome" title="Reset view">⌂</button>
+          <button type="button" id="btn-png" title="Export PNG">PNG</button>
+        </div>
+      </div>
+    </main>
   </div>
 
-  <!-- Help dialog -->
-  <dialog id="help">
-    <h2>How to write formulas</h2>
-    <table>
-      <tr><th scope="row">Function</th><td><code>y = x^2 - 3</code> or just <code>x^2 - 3</code></td></tr>
-      <tr><th scope="row">x as a function of y</th><td><code>x = sin(y)</code></td></tr>
-      <tr><th scope="row">Implicit equation</th><td><code>x^2 + y^2 = 25</code></td></tr>
-      <tr><th scope="row">Inequality</th><td><code>y &lt; 2x + 1</code>, <code>x^2 + y^2 &lt;= 4</code></td></tr>
-      <tr><th scope="row">Polar</th><td><code>r = 2 + cos(5θ)</code> (you can type <code>theta</code>)</td></tr>
-      <tr><th scope="row">Parametric</th><td><code>(4cos(3t), 4sin(2t))</code></td></tr>
-      <tr><th scope="row">Point</th><td><code>(2, f(2))</code></td></tr>
-      <tr><th scope="row">Define and reuse</th><td><code>f(x) = x^3 - x</code>, then <code>f(x - 2)</code></td></tr>
-      <tr><th scope="row">Derivatives</th><td><code>f'(x)</code>, <code>f''(x)</code> or the “Derivative” button</td></tr>
-      <tr><th scope="row">Parameters</th><td><code>a sin(b x)</code> creates sliders for a and b</td></tr>
-      <tr><th scope="row">Restrict domain</th><td><code>y = x^2 {-1 &lt; x &lt; 2}</code></td></tr>
-      <tr><th scope="row">Comment</th><td>Lines starting with <code>#</code> are not plotted</td></tr>
-    </table>
-    <p><strong>Functions:</strong> sin, cos, tan, sec, csc, cot, asin, acos, atan, atan2, sinh, cosh, tanh, sqrt (√), cbrt, root(n, x), abs or |x|, exp, ln, log (base 10), log2, log(base, x), floor, ceil, round, sign, min, max, mod, gamma, factorial (n!).</p>
-    <p><strong>Constants:</strong> pi (π), e, tau (τ). Angles are in radians and decimals use a dot.</p>
-    <p><strong>Mouse &amp; keyboard:</strong> drag to pan and use the scroll wheel to zoom. Shift + wheel scales only the x-axis; Alt + wheel scales only the y-axis. On touch screens, pinch to zoom. Enter adds a new formula.</p>
-    <p><strong>Saving &amp; formats:</strong> state auto-saves in this browser; you can also export PNG or vector SVG graphs, save/load <code>.json</code> projects, or exchange formulas as LaTeX (<code>.tex</code>) and MathML (<code>.xml</code> / <code>.mml</code>).</p>
-    <form method="dialog"><button class="primary">Close</button></form>
-  </dialog>
+  <div class="popover" id="examples-pop" hidden></div>
 
-  <!-- Scripts (order matters) -->
+  <div class="modal" id="help-modal" hidden>
+    <div class="dialog" role="dialog" aria-labelledby="help-title">
+      <div class="dialog-head">
+        <h2 id="help-title">Graphing Guide</h2>
+        <button type="button" class="icon-btn" id="btn-help-close" aria-label="Close">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p>Write explicit functions, 3D surfaces (<code>z = ...</code>), parametric curves, polar curves, implicits, inequalities or points.</p>
+        <table>
+          <thead><tr><th>Syntax</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>Explicit 2D</td><td><code>y = sin(x)</code>, <code>f(x) = x^2 - 4</code></td></tr>
+            <tr><td>Surface 3D</td><td><code>z = sin(x) * cos(y)</code></td></tr>
+            <tr><td>Parametric</td><td><code>(cos(t), sin(t))</code> or 3D <code>(cos(t), sin(t), t/4)</code></td></tr>
+            <tr><td>Polar</td><td><code>r = 1 + cos(theta)</code></td></tr>
+            <tr><td>Implicit &amp; inequality</td><td><code>x^2 + y^2 = 9</code>, <code>y &lt; sin(x)</code></td></tr>
+            <tr><td>Piecewise domain</td><td><code>y = 1.4 / x {x &gt;= 0.6}</code></td></tr>
+            <tr><td>Multidimensional ND</td><td><code>w = sin(x + y) * 1.4</code> (axes <code>x..p</code>, vertex <code>i</code>, dim <code>d</code>)</td></tr>
+            <tr><td>Edge mech</td><td>Toggle <code>Edge Mech</code> to bridge edges with trusses, ribs or lattice</td></tr>
+            <tr><td>Parameters</td><td>Any letter except <code>x, y, z, t, theta, r, e, pi</code></td></tr>
+          </tbody>
+        </table>
+        <p><strong>Navigation:</strong> Drag to pan (2D) or orbit (3D/ND). Hold <code>Shift</code> or right/middle-drag in 3D/ND to pan target. Scroll or use <code>+</code>/<code>−</code> to zoom; double-click or <code>⌂</code> to reset.</p>
+      </div>
+    </div>
+  </div>
+
   <script src="js/formulas.js"></script>
   <script src="js/graph.js"></script>
+  <script src="js/graph3d.js"></script>
+  <script src="js/polytope.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

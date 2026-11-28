@@ -1,6 +1,6 @@
 /**
  * graph.js - canvas renderer: grid and axes, curve sampling, implicit
- * contours, inequality regions, key points and hit testing.
+ * contours, inequality regions, key points, trace and hit testing.
  * Exposes the global `Graph` class.
  */
 (function (global) {
@@ -10,22 +10,62 @@
     constructor(canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
-      this.view = { cx: 0, cy: 0, sx: 60, sy: 60 };
-      this.w = 0; this.h = 0;
+      this.view = { cx: 0, cy: 0, sx: 60, sy: 60, xmin: -10, xmax: 10, ymin: -6, ymax: 6 };
+      this.w = 0;
+      this.h = 0;
+      this.dpr = 1;
       this.layer = document.createElement('canvas');
+      this.layerCtx = this.layer.getContext('2d');
       this.paths = [];
       this.notables = [];
+      this.hover = null;
+      this.pinned = null;
     }
 
-    /**
-     * Matches the canvas buffer to its CSS size and the device pixel ratio.
-     */
     resize() {
       const r = this.canvas.getBoundingClientRect();
       const d = window.devicePixelRatio || 1;
-      this.w = Math.max(1, r.width); this.h = Math.max(1, r.height); this.dpr = d;
+      this.w = Math.max(1, r.width);
+      this.h = Math.max(1, r.height);
+      this.dpr = d;
       this.canvas.width = Math.round(this.w * d);
       this.canvas.height = Math.round(this.h * d);
+      this.syncBounds();
+    }
+
+    syncBounds() {
+      const v = this.view;
+      const hw = (this.w || 800) / (2 * (v.sx || 60));
+      const hh = (this.h || 500) / (2 * (v.sy || 60));
+      v.xmin = v.cx - hw;
+      v.xmax = v.cx + hw;
+      v.ymin = v.cy - hh;
+      v.ymax = v.cy + hh;
+    }
+
+    setView(xmin, xmax, ymin, ymax) {
+      const w = Math.max(1, this.w || this.canvas.clientWidth || 800);
+      const h = Math.max(1, this.h || this.canvas.clientHeight || 500);
+      const dx = Math.max(1e-6, xmax - xmin);
+      const dy = Math.max(1e-6, ymax - ymin);
+      this.view = {
+        cx: (xmin + xmax) / 2,
+        cy: (ymin + ymax) / 2,
+        sx: w / dx,
+        sy: h / dy,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+      };
+    }
+
+    equalize() {
+      const v = this.view;
+      const s = Math.min(v.sx, v.sy);
+      v.sx = s;
+      v.sy = s;
+      this.syncBounds();
     }
 
     px(x) { return this.w / 2 + (x - this.view.cx) * this.view.sx; }
@@ -33,35 +73,38 @@
     mx(px) { return this.view.cx + (px - this.w / 2) / this.view.sx; }
     my(py) { return this.view.cy - (py - this.h / 2) / this.view.sy; }
 
-    /**
-     * Moves the view by a pixel offset.
-     */
-    pan(dx, dy) { this.view.cx -= dx / this.view.sx; this.view.cy += dy / this.view.sy; }
+    toMathX(px) { return this.mx(px); }
+    toMathY(py) { return this.my(py); }
 
-    /**
-     * Scales the view around a pixel (default: the center).
-     * @param {number} fx Horizontal factor.
-     * @param {number} fy Vertical factor.
-     */
+    fmt(v) {
+      if (!Number.isFinite(v)) return '—';
+      if (Math.abs(v) < 1e-12) return '0';
+      if (Math.abs(v) >= 1e5 || Math.abs(v) < 1e-3) return v.toExponential(2).replace('-', '−');
+      return (+v.toPrecision(4)).toString().replace('-', '−');
+    }
+
+    pan(dx, dy) {
+      this.view.cx -= dx / this.view.sx;
+      this.view.cy += dy / this.view.sy;
+      this.syncBounds();
+    }
+
     zoom(fx, fy, px = this.w / 2, py = this.h / 2) {
       const v = this.view, x = this.mx(px), y = this.my(py);
       const clamp = (s) => Math.min(1e8, Math.max(1e-6, s));
-      v.sx = clamp(v.sx * fx); v.sy = clamp(v.sy * fy);
+      v.sx = clamp(v.sx * fx);
+      v.sy = clamp(v.sy * fy);
       v.cx = x - (px - this.w / 2) / v.sx;
       v.cy = y + (py - this.h / 2) / v.sy;
+      this.syncBounds();
     }
 
-    /**
-     * Resets to the initial view centered on the origin.
-     */
     home() {
-      const s = Math.max(20, Math.min(this.w, this.h) / 12);
+      const s = Math.max(20, Math.min(this.w || 600, this.h || 500) / 12);
       this.view = { cx: 0, cy: 0, sx: s, sy: s };
+      this.syncBounds();
     }
 
-    /**
-     * Chooses a "nice" major grid step for a pixel scale.
-     */
     static step(scale, target = 90) {
       const raw = target / scale;
       const p = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -72,9 +115,6 @@
       return { major: 10 * p, div: 5 };
     }
 
-    /**
-     * Like step(), but in multiples of π for the x-axis.
-     */
     static stepPi(scale) {
       const target = 90 / scale / Math.PI;
       const op = [1 / 12, 1 / 6, 1 / 4, 1 / 2, 1, 2, 4, 5, 10, 20, 50, 100, 200, 500, 1000, 1e4, 1e5, 1e6];
@@ -82,9 +122,6 @@
       return { major: k * Math.PI, div: 2, k };
     }
 
-    /**
-     * Formats an axis label.
-     */
     static number(v, step) {
       if (Math.abs(v) < step * 1e-6) return '0';
       if (Math.abs(v) >= 1e6 || Math.abs(v) < 1e-4) return v.toExponential(2).replace(/\.?0+e/, 'e').replace('-', '−');
@@ -92,9 +129,6 @@
       return v.toFixed(dec).replace('-', '−');
     }
 
-    /**
-     * Formats a multiple of π, e.g. 3π/2.
-     */
     static labelPi(v) {
       const k = v / Math.PI;
       for (const den of [1, 2, 3, 4, 6, 12]) {
@@ -108,21 +142,20 @@
       return k.toFixed(2) + 'π';
     }
 
-    /**
-     * Draws the grid, axes and axis numbers.
-     */
     grid(theme, op) {
       const c = this.ctx, v = this.view;
       const gx = op.pi ? Graph.stepPi(v.sx) : Graph.step(v.sx);
       const gy = Graph.step(v.sy);
       const x0 = this.mx(0), x1 = this.mx(this.w), y0 = this.my(this.h), y1 = this.my(0);
+      const majorCol = theme.gridMajor || theme.grid;
 
       const lines = (step, vertical, color) => {
         const a = vertical ? x0 : y0, b = vertical ? x1 : y1;
         c.beginPath();
         for (let i = Math.ceil(a / step); i <= Math.floor(b / step); i++) {
           const q = Math.round(vertical ? this.px(i * step) : this.py(i * step)) + 0.5;
-          if (vertical) { c.moveTo(q, 0); c.lineTo(q, this.h); } else { c.moveTo(0, q); c.lineTo(this.w, q); }
+          if (vertical) { c.moveTo(q, 0); c.lineTo(q, this.h); }
+          else { c.moveTo(0, q); c.lineTo(this.w, q); }
         }
         c.strokeStyle = color; c.lineWidth = 1; c.stroke();
       };
@@ -132,8 +165,8 @@
         else {
           lines(gx.major / gx.div, true, theme.gridFine);
           lines(gy.major / gy.div, false, theme.gridFine);
-          lines(gx.major, true, theme.grid);
-          lines(gy.major, false, theme.grid);
+          lines(gx.major, true, majorCol);
+          lines(gy.major, false, majorCol);
         }
       }
       if (!op.axes) return;
@@ -163,15 +196,12 @@
       if (ex > 14 && ey < this.h - 14) write('0', ex - 6, ey + 5);
     }
 
-    /**
-     * Draws concentric circles and radial lines.
-     */
     polarGrid(theme, step) {
       const c = this.ctx, v = this.view, ox = this.px(0), oy = this.py(0);
       const far = Math.max(...[[0, 0], [this.w, 0], [0, this.h], [this.w, this.h]]
         .map(([x, y]) => Math.hypot(this.mx(x), this.my(y))));
       const near = Math.hypot(Math.max(this.mx(0), 0, -this.mx(this.w)), Math.max(this.my(this.h), 0, -this.my(0)));
-      c.strokeStyle = theme.grid; c.lineWidth = 1;
+      c.strokeStyle = theme.gridMajor || theme.grid; c.lineWidth = 1;
       const start = Math.max(1, Math.floor(near / step));
       for (let i = start; i * step <= far && i < start + 200; i++) {
         c.beginPath(); c.ellipse(ox, oy, i * step * v.sx, i * step * v.sy, 0, 0, 2 * Math.PI); c.stroke();
@@ -184,10 +214,6 @@
       c.stroke();
     }
 
-    /**
-     * Samples a point function into continuous screen-space segments,
-     * refining near jumps and splitting at asymptotes and undefined values.
-     */
     sample(point, a, b, n) {
       const segments = [];
       let current = [];
@@ -233,9 +259,6 @@
       return segments;
     }
 
-    /**
-     * Strokes polylines with the given color, thickness and dash style.
-     */
     strokeSegments(segments, style) {
       const c = this.ctx;
       c.save();
@@ -254,9 +277,6 @@
       c.restore();
     }
 
-    /**
-     * Samples y = f(x) (axis "x") or x = f(y) (axis "y").
-     */
     explicitSegments(f, axis) {
       if (axis === 'x') {
         return this.sample((x) => [this.px(x), this.py(f(x)), x], this.mx(-4), this.mx(this.w + 4), Math.ceil(this.w / 2));
@@ -264,17 +284,12 @@
       return this.sample((y) => [this.px(f(y)), this.py(y), y], this.my(this.h + 4), this.my(-4), Math.ceil(this.h / 2));
     }
 
-    /**
-     * Marching-squares contour of F(x, y) = 0 for implicit equations.
-     * @param {number} cell Cell size in pixels.
-     */
     contour(F, cell) {
       const nx = Math.ceil(this.w / cell), ny = Math.ceil(this.h / cell);
       const dx = this.w / nx, dy = this.h / ny;
       let prev = new Float64Array(nx + 1), row = new Float64Array(nx + 1);
       const segments = [];
       const xs = Array.from({ length: nx + 1 }, (_, i) => this.mx(i * dx));
-      // Small offset so grid samples rarely hit exact zeros
       const eps = 1e-7 / this.view.sx;
       const val = (i, y) => { const v = F(xs[i] + eps, y); return v === 0 ? 1e-300 : v; };
       for (let i = 0; i <= nx; i++) prev[i] = val(i, this.my(0) + eps);
@@ -293,7 +308,6 @@
             const t = a / (a - b), P = corners[k], Q = corners[(k + 1) % 4];
             const x = P[0] + (Q[0] - P[0]) * t, y = P[1] + (Q[1] - P[1]) * t;
             const r = F(x, y);
-            // Reject sign flips caused by asymptotes rather than roots
             if (Math.abs(r) > Math.max(Math.abs(a), Math.abs(b))) continue;
             cuts.push([this.px(x), this.py(y)]);
           }
@@ -304,9 +318,6 @@
       return segments;
     }
 
-    /**
-     * Fills and outlines the area of an inequality.
-     */
     region(o, style) {
       const c = this.ctx;
       const strict = o.op === '<' || o.op === '>';
@@ -331,7 +342,8 @@
       }
       const step = 3, nx = Math.ceil(this.w / step), ny = Math.ceil(this.h / step);
       this.layer.width = nx; this.layer.height = ny;
-      const cc = this.layer.getContext('2d');
+      const cc = this.layerCtx;
+      cc.clearRect(0, 0, nx, ny);
       cc.fillStyle = style.color;
       for (let j = 0; j < ny; j++) {
         const y = this.my((j + 0.5) * step);
@@ -349,10 +361,7 @@
       return segments;
     }
 
-    /**
-     * Draws a full frame: background, grid, every object and key points.
-     */
-    draw(objects, theme, op) {
+    draw(objects, theme, op = {}) {
       const c = this.ctx;
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       c.fillStyle = theme.bg; c.fillRect(0, 0, this.w, this.h);
@@ -364,7 +373,8 @@
         const { o, style, id } = item;
         let segments = [];
         switch (o.type) {
-          case 'explicit': case 'explicitX':
+          case 'explicit':
+          case 'explicitX':
             segments = this.explicitSegments(o.f, o.type === 'explicit' ? 'x' : 'y');
             this.strokeSegments(segments, style);
             if (item.derivative) {
@@ -373,7 +383,8 @@
                 { ...style, thickness: Math.max(1.2, style.thickness * 0.65), stroke: 'dashed', alpha: 0.75 });
             }
             break;
-          case 'polar': case 'parametric': {
+          case 'polar':
+          case 'parametric': {
             const [a, b] = item.range;
             const point = o.type === 'polar'
               ? (t) => { const r = o.f(t); return [this.px(r * Math.cos(t)), this.py(r * Math.sin(t)), t]; }
@@ -404,11 +415,38 @@
 
       this.notables = [];
       if (op.notables) this.drawNotables(objects, theme, op.active);
+      if (op.trace !== false) this.drawTrace(theme);
     }
 
-    /**
-     * Draws a dot with a background-colored outline.
-     */
+    drawTrace(theme) {
+      const c = this.ctx;
+      const drawCallout = (pt, pinned) => {
+        if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return;
+        const X = this.px(pt.x), Y = this.py(pt.y);
+        if (X < -20 || X > this.w + 20 || Y < -20 || Y > this.h + 20) return;
+        this.mark(X, Y, pt.color || '#2b45d4', theme, pinned ? 5.5 : 4.5);
+        const text = `(${this.fmt(pt.x)}, ${this.fmt(pt.y)})` + (Number.isFinite(pt.slope) ? `  m=${this.fmt(pt.slope)}` : '');
+        c.save();
+        c.font = '600 12px ui-monospace, monospace';
+        const pad = 6, tw = c.measureText(text).width;
+        const bx = Math.min(this.w - tw - pad * 2 - 8, Math.max(8, X + 10));
+        const by = Math.min(this.h - 28, Math.max(8, Y - 24));
+        c.fillStyle = theme.labelBg || theme.bg;
+        c.strokeStyle = theme.axis;
+        c.lineWidth = 1;
+        c.beginPath();
+        c.roundRect(bx, by, tw + pad * 2, 22, 6);
+        c.fill();
+        c.stroke();
+        c.fillStyle = theme.text;
+        c.textBaseline = 'middle';
+        c.fillText(text, bx + pad, by + 11);
+        c.restore();
+      };
+      if (this.pinned) drawCallout(this.pinned, true);
+      if (this.hover) drawCallout(this.hover, false);
+    }
+
     mark(x, y, color, theme, r = 4.5) {
       const c = this.ctx;
       c.beginPath(); c.arc(x, y, r, 0, 2 * Math.PI);
@@ -416,9 +454,6 @@
       c.lineWidth = 2; c.strokeStyle = theme.bg; c.stroke();
     }
 
-    /**
-     * Finds zeros of g in [a, b] by scanning n steps and bisecting sign changes.
-     */
     static zeros(g, a, b, n) {
       const out = [];
       const h = (b - a) / n;
@@ -442,9 +477,6 @@
       return out;
     }
 
-    /**
-     * Finds and draws roots, extrema, intersections and the y-intercept of the active function.
-     */
     drawNotables(objects, theme, active) {
       const exp = objects.filter((q) => q.o.type === 'explicit');
       const primary = exp.find((q) => q.id === active) || exp[0];
@@ -466,7 +498,6 @@
       }
       for (const x of Graph.zeros(f, a, b, n)) add('Root', x, 0, primary.style.color);
       const d = (u) => global.Formulas.derivative(f, u);
-      // Dampen finite-difference noise on flat sections
       const d1 = (u) => { const v = d(u); return Math.abs(v) < 1e-9 ? 0 : v; };
       const h = 2 / this.view.sx;
       for (const x of Graph.zeros(d1, a, b, n)) {
@@ -478,10 +509,11 @@
       for (const p of this.notables) this.mark(p.X, p.Y, p.color, theme, 4);
     }
 
-    /**
-     * Returns the closest curve or key point to a pixel position, or null.
-     */
-    nearest(X, Y) {
+    nearest(a, b, c) {
+      const hasObjectsArg = Array.isArray(a);
+      const X = hasObjectsArg ? b : a;
+      const Y = hasObjectsArg ? c : b;
+
       for (const p of this.notables) if (Math.hypot(p.X - X, p.Y - Y) < 10) return { ...p, label: p.type };
       let best = null, dist = 24;
       for (const t of this.paths) {
@@ -491,7 +523,7 @@
             const d = Math.abs(this.py(y) - Y);
             if (d < dist) {
               dist = d;
-              best = { x, y, X, Y: this.py(y), color: t.color, slope: global.Formulas.derivative(t.o.f, x) };
+              best = { id: t.id, x, y, X, Y: this.py(y), color: t.color, slope: global.Formulas.derivative(t.o.f, x) };
             }
           }
         }
@@ -503,7 +535,7 @@
             const qx = A[0] + k * vx, qy = A[1] + k * vy, d = Math.hypot(qx - X, qy - Y);
             if (d < dist - (t.o.type === 'explicit' ? 4 : 0)) {
               dist = d;
-              best = { x: this.mx(qx), y: this.my(qy), X: qx, Y: qy, color: t.color };
+              best = { id: t.id, x: this.mx(qx), y: this.my(qy), X: qx, Y: qy, color: t.color };
               if (t.o.type === 'explicit') {
                 const y = t.o.f(best.x);
                 if (Number.isFinite(y)) {

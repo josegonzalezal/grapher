@@ -1,1066 +1,1248 @@
 /**
- * app.js - interface logic: formula rows, parameter sliders, style popup,
- * theme, canvas interaction, saving, SVG/LaTeX/MathML export and opening projects.
- * Depends on Formulas (formulas.js) and Graph (graph.js).
+ * app.js - UI controller, expression list, sliders, examples, 2D/3D/ND mode toggle,
+ * PC benchmark runner and persistent state in localStorage.
  */
 (function () {
   'use strict';
 
-  const $ = (q) => document.querySelector(q);
-  const STORAGE_KEY = 'grapher-v1';
-  const PALETTE = {
-    light: ['#2b45d4', '#d92b4b', '#0a8a5f', '#c96a00', '#8b2fc9', '#007f9e', '#c0267e', '#5b7a00', '#8a4b2a', '#1b2342'],
-    dark: ['#7f9bff', '#ff6f86', '#3fd6a0', '#ffab45', '#c88bff', '#45d4f0', '#ff7ac4', '#b4da45', '#d99a74', '#e6ecfa'],
-  };
-  const TWO_PI = 2 * Math.PI;
+  const PALETTE = ['#2b45d4', '#d12c38', '#0f8a5f', '#d97706', '#7c3aed',
+    '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#334155', '#ea580c', '#0d9488'];
 
-  const EXAMPLES = {
-    'Getting started': ['f(x) = a sin(x)', 'y = x^2/8 - 3', 'a = 3'],
-    'Traveling wave': ['y = a sin(b x - c) e^(-x^2/40)', 'y = a e^(-x^2/40)', 'y = -a e^(-x^2/40)', 'a = 4', 'b = 3', 'c = 0'],
-    'Derivatives & tangent': ['f(x) = x^3/6 - 2x', "y = f'(x)", "y = f(a) + f'(a)(x - a)", '(a, f(a))', 'a = -1.5'],
-    'Polar flower': ['r = 5cos(k θ)', 'r = 6', 'k = 4'],
-    'Butterfly': [{ text: 'r = e^(sin θ) - 2cos(4θ) + sin((2θ - π)/24)^5', to: '24π' }],
-    'Heart': ['(x^2 + y^2 - 9)^3 - 3x^2 y^3 <= 0'],
-    'Lissajous curves': ['(6sin(a t + d), 4sin(b t))', 'a = 3', 'b = 4', 'd = 1.5'],
-    'Regions': ['y >= x^2/4 - 4', 'y < x/2 + 2', 'x^2 + y^2 = 36'],
-    'Asymptotes & jumps': ['y = tan(x)', 'y = 1/(x - 2)', 'y = floor(x)'],
-    "Gabriel's horn": ['y = 1/x {x >= 1}', 'y = -1/x {x >= 1}', 'x = 1 {-1 <= y <= 1}'],
-  };
+  const EXAMPLES = [
+    {
+      name: 'Getting started',
+      view: [-8, 8, -5, 5],
+      lines: [
+        { text: 'y = a sin(b x)', color: '#2b45d4' },
+        { text: 'y = 0.2 x^2 - 2', color: '#0f8a5f' },
+      ],
+      lines3d: [
+        { text: 'z = a sin(b x) cos(b y)', color: '#2b45d4' },
+        { text: 'z = 0.15 (x^2 - y^2) - 2', color: '#0f8a5f' },
+      ],
+      params: { a: { value: 2, min: -5, max: 5, step: 0.05 }, b: { value: 1.5, min: 0.2, max: 5, step: 0.05 } },
+    },
+    {
+      name: 'Traveling wave',
+      view: [-10, 10, -3.5, 3.5],
+      lines: [
+        { text: 'y = sin(x - t) + 0.5 sin(2x + t)', color: '#2b45d4' },
+        { text: 'y = sin(x - t)', color: '#94a3b8', dash: 'dashed', thickness: 1.5 },
+      ],
+      lines3d: [
+        { text: 'z = sin(x - t) cos(y) + 0.5 sin(2x + t)', color: '#2b45d4' },
+      ],
+      params: { t: { value: 0, min: 0, max: 12.56, step: 0.05, play: true } },
+    },
+    {
+      name: 'Derivatives & tangent',
+      view: [-4.5, 4.5, -4, 6],
+      lines: [
+        { text: 'f(x) = 0.25 x^3 - 1.5 x + 1', color: '#2b45d4' },
+        { text: "y = f'(x)", color: '#0f8a5f', dash: 'dashed' },
+        { text: "y = f(a) + f'(a)(x - a)", color: '#d12c38' },
+        { text: '(a, f(a))', color: '#d12c38' },
+      ],
+      lines3d: [
+        { text: 'z = 0.15 (x^3 - 3 x y^2) + 1', color: '#2b45d4' },
+        { text: '(a, 0, 0.15 a^3 + 1)', color: '#d12c38' },
+      ],
+      params: { a: { value: 1.2, min: -3.5, max: 3.5, step: 0.05 } },
+    },
+    {
+      name: 'Polar flower',
+      view: [-4.5, 4.5, -4.5, 4.5],
+      lines: [{ text: 'r = 3.5 cos(k θ)', color: '#7c3aed', tMin: '0', tMax: '2pi' }],
+      lines3d: [
+        { text: 'z = 2.5 exp(-0.18 (x^2 + y^2)) cos(k atan2(y, x))', color: '#7c3aed' },
+      ],
+      params: { k: { value: 5, min: 1, max: 12, step: 1 } },
+    },
+    {
+      name: 'Butterfly',
+      view: [-4.5, 4.5, -3.5, 4.5],
+      lines: [{ text: '(sin(t)(exp(cos(t)) - 2 cos(4t) - sin(t/12)^5), cos(t)(exp(cos(t)) - 2 cos(4t) - sin(t/12)^5))', color: '#db2777', tMin: '0', tMax: '12pi' }],
+      lines3d: [{ text: '(sin(t)(exp(cos(t)) - 2 cos(4t) - sin(t/12)^5), cos(t)(exp(cos(t)) - 2 cos(4t) - sin(t/12)^5), 1.4 sin(2t))', color: '#db2777', tMin: '0', tMax: '12pi' }],
+    },
+    {
+      name: 'Heart',
+      view: [-2.2, 2.2, -1.8, 2.2],
+      lines: [{ text: '(x^2 + y^2 - 1)^3 = x^2 y^3', color: '#d12c38', thickness: 3 }],
+      lines3d: [{ text: 'z = 1.6 sqrt(max(0, 1 - (x^2 + (y - 0.5 sqrt(|x|))^2) / 2.2))', color: '#d12c38' }],
+    },
+    {
+      name: 'Lissajous curves',
+      view: [-4.5, 4.5, -4.5, 4.5],
+      lines: [{ text: '(3.5 sin(3t + d), 3.5 sin(4t))', color: '#0891b2', tMin: '0', tMax: '2pi' }],
+      lines3d: [{ text: '(3.5 sin(3t + d), 3.5 sin(4t), 2.5 cos(5t))', color: '#0891b2', tMin: '0', tMax: '2pi' }],
+      params: { d: { value: 0.7, min: 0, max: 6.28, step: 0.05, play: true } },
+    },
+    {
+      name: 'Regions',
+      view: [-6, 6, -4.5, 4.5],
+      lines: [
+        { text: 'x^2 + y^2 ≤ 9', color: '#2b45d4' },
+        { text: 'y > 0.4 x^2 - 2', color: '#0f8a5f' },
+      ],
+      lines3d: [
+        { text: 'z = 3 - 0.35 (x^2 + y^2)', color: '#2b45d4' },
+        { text: 'z = 0.25 (x^2 - y^2)', color: '#0f8a5f' },
+      ],
+    },
+    {
+      name: 'Asymptotes & jumps',
+      view: [-6, 6, -6, 6],
+      lines: [
+        { text: 'y = (x^2 - 1) / (x - 2)', color: '#2b45d4' },
+        { text: 'y = floor(x)', color: '#d97706' },
+      ],
+      lines3d: [
+        { text: 'z = (x^2 - y^2) / (x^2 + y^2 + 0.4)', color: '#2b45d4' },
+        { text: 'z = 0.5 (floor(x) + floor(y))', color: '#d97706' },
+      ],
+    },
+    {
+      name: "Gabriel's horn",
+      view: [-0.5, 11, -3, 3],
+      revolve3d: true,
+      lines: [
+        { text: 'y = 1 / x {x ≥ 1}', color: '#2b45d4' },
+        { text: 'y = -1 / x {x ≥ 1}', color: '#2b45d4' },
+      ],
+      lines3d: [
+        { text: 'y = 1.4 / x {x ≥ 0.6}', color: '#2b45d4' },
+      ],
+    },
+  ];
 
+  const STORAGE = 'grapher.v1';
+  const $ = (s, p = document) => p.querySelector(s);
+  const canvas = $('#canvas');
+  const canvas3d = $('#canvas3d');
+  const graph = new Graph(canvas);
+  const graph3d = new Graph3D(canvas3d);
+  const polytope = typeof PolytopeND === 'function' ? new PolytopeND(canvas3d) : null;
 
-  // ---- State and persistence ----
-  let nextId = 1;
-  const newLine = (data = {}) => {
-    const id = nextId++;
-    return {
-      id, text: '', color: (id - 1) % 8, thickness: 2.5, stroke: 'solid', visible: true,
-      derivative: false, from: '0', to: '2π', ...data,
-    };
-  };
-  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
   const state = {
-    lines: [], parameters: {}, active: null,
-    theme: systemDark.matches ? 'dark' : 'light',
-    themeManual: false, // true once the user presses the theme button; otherwise the system theme is followed
-    options: { grid: true, axes: true, polar: false, pi: false, notables: true },
+    lines: [],
+    params: {},
+    options: { grid: true, axes: true, trace: true, equal: false, dark: false },
+    nextId: 1,
+    mode3d: false,
+    polytopeMode: false,
+    activeExample: null,
   };
-  const globals = Object.create(null);
+
   let compiled = { lines: [], parameters: [] };
-  const animating = new Map();
-  const graph = new Graph($('#graph'));
-  const rows = new Map();
+  let globals = Object.create(null);
+  let activeInput = null;
+  let dirty = true;
+  let fastUntil = 0;
+  let styleTarget = null;
+  let stylePop = null;
+  let benchUntil = 0;
 
-  let saveTimer;
-  /**
-   * Builds the plain-object snapshot used for localStorage and for the .json export.
-   */
-  function serialize() {
-    return {
-      version: 1, lines: state.lines.map(({ id, ...l }) => l), parameters: state.parameters,
-      options: state.options, themeManual: state.themeManual,
-      theme: state.themeManual ? state.theme : null, view: graph.view,
-    };
-  }
-  /**
-   * Saves the snapshot to localStorage. Errors (private mode, quota) are ignored.
-   */
-  function writeStorage() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize())); } catch (_) {}
-  }
-  /**
-   * Debounced save (300 ms); called after every change.
-   */
+  const radToDeg = (rad) => Math.round((rad * 180) / Math.PI);
+
+  const requestDraw = (fast = false) => {
+    dirty = true;
+    fastUntil = fast ? performance.now() + 140 : 0;
+  };
+
   function save() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(writeStorage, 300);
+    try {
+      graph.syncBounds();
+      localStorage.setItem(STORAGE, JSON.stringify({
+        lines: state.lines,
+        params: state.params,
+        options: state.options,
+        view: [graph.view.xmin, graph.view.xmax, graph.view.ymin, graph.view.ymax],
+        mode3d: state.mode3d,
+        polytopeMode: state.polytopeMode,
+        polytopeDim: polytope ? polytope.dim : 4,
+        polytopeShape: polytope ? polytope.shape : 'hypercube',
+        polytopeFormula: polytope ? polytope.formulaText : '',
+        mechEnabled: polytope ? polytope.mechEnabled : false,
+        mechStyle: polytope ? polytope.mechStyle : 'truss',
+        mechSubdivisions: polytope ? polytope.mechSubdivisions : 2,
+        quality3d: graph3d.quality,
+        revolve3d: graph3d.revolveMode,
+        camera3d: graph3d.camera,
+      }));
+    } catch (_) {}
   }
-  /**
-   * Saves immediately; used when the page is reloaded, closed or hidden.
-   */
-  function flush() { clearTimeout(saveTimer); writeStorage(); }
-  /**
-   * Validates a saved snapshot and applies it to `state`. Throws if the format is invalid.
-   * @param {object} data Parsed JSON snapshot.
-   */
-  function load(data) {
-    if (!data || !Array.isArray(data.lines)) throw new Error('format');
-    const num = (v, d) => (Number.isFinite(v) ? v : d);
-    nextId = 1;
-    state.lines = data.lines.slice(0, 100).map((l) => {
-      const n = newLine();
-      if (typeof l.text === 'string') n.text = l.text.slice(0, 500);
-      if (Number.isInteger(l.color) ? PALETTE.light[l.color] : /^#[0-9a-f]{6}$/i.test(l.color)) n.color = l.color;
-      n.thickness = Math.min(8, Math.max(1, num(l.thickness, 2.5)));
-      if (['solid', 'dashed', 'dotted'].includes(l.stroke)) n.stroke = l.stroke;
-      n.visible = l.visible !== false;
-      n.derivative = l.derivative === true;
-      if (typeof l.from === 'string') n.from = l.from;
-      if (typeof l.to === 'string') n.to = l.to;
-      return n;
-    });
-    if (!state.lines.length) state.lines.push(newLine());
-    state.parameters = {};
-    for (const [k, p] of Object.entries(data.parameters || {})) {
-      if (p && /^[A-Za-zα-ω](_[A-Za-z0-9]+|\d+)?$/.test(k)) {
-        state.parameters[k] = { value: num(p.value, 1), min: num(p.min, -10), max: num(p.max, 10) };
+
+  function load() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(STORAGE));
+      if (!raw || !Array.isArray(raw.lines) || !raw.lines.length) return false;
+      state.lines = raw.lines;
+      state.nextId = Math.max(0, ...state.lines.map((l) => l.id || 0)) + 1;
+      state.params = raw.params || {};
+      Object.assign(state.options, raw.options);
+      if (Array.isArray(raw.view) && raw.view.length === 4) graph.setView(...raw.view);
+      state.mode3d = Boolean(raw.mode3d);
+      state.polytopeMode = Boolean(raw.polytopeMode);
+      if (polytope) {
+        if (raw.polytopeDim) polytope.setDimension(raw.polytopeDim);
+        if (raw.polytopeShape) polytope.setShape(raw.polytopeShape);
+        if (raw.polytopeFormula) polytope.setFormula(raw.polytopeFormula);
+        if (raw.mechEnabled) polytope.setMechEnabled(Boolean(raw.mechEnabled));
+        if (raw.mechStyle) polytope.setMechStyle(raw.mechStyle);
+        if (raw.mechSubdivisions) polytope.setMechSubdivisions(raw.mechSubdivisions);
       }
+      if (raw.quality3d) graph3d.quality = raw.quality3d;
+      if (raw.revolve3d) graph3d.revolveMode = Boolean(raw.revolve3d);
+      if (raw.camera3d) {
+        graph3d.camera = {
+          yaw: Number.isFinite(raw.camera3d.yaw) ? raw.camera3d.yaw : -0.68,
+          pitch: Number.isFinite(raw.camera3d.pitch) ? raw.camera3d.pitch : 0.42,
+          distance: Number.isFinite(raw.camera3d.distance) ? raw.camera3d.distance : 8.5,
+          range: Number.isFinite(raw.camera3d.range) ? raw.camera3d.range : 3.5,
+          target: {
+            x: Number.isFinite(raw.camera3d.target?.x) ? raw.camera3d.target.x : 0,
+            y: Number.isFinite(raw.camera3d.target?.y) ? raw.camera3d.target.y : 0,
+            z: Number.isFinite(raw.camera3d.target?.z) ? raw.camera3d.target.z : 0,
+          },
+        };
+      }
+      return true;
+    } catch (_) { return false; }
+  }
+
+  function recompile() {
+    globals = Object.create(null);
+    for (const [k, p] of Object.entries(state.params)) globals[k] = p.value;
+    compiled = Formulas.compileAll(state.lines.map((l) => l.text), globals);
+
+    const used = new Set(compiled.parameters);
+    for (const k of Object.keys(state.params)) if (!used.has(k)) delete state.params[k];
+    for (const k of compiled.parameters) {
+      if (!state.params[k]) state.params[k] = { value: 1, min: -5, max: 5, step: 0.05, play: false };
+      globals[k] = state.params[k].value;
     }
-    for (const k of Object.keys(state.options)) {
-      if (typeof data.options?.[k] === 'boolean') state.options[k] = data.options[k];
-    }
-    // Only a theme the user chose explicitly is restored; otherwise the system theme is used
-    state.themeManual = data.themeManual === true && (data.theme === 'light' || data.theme === 'dark');
-    state.theme = state.themeManual ? data.theme : (systemDark.matches ? 'dark' : 'light');
-    const v = data.view;
-    if (v && [v.cx, v.cy, v.sx, v.sy].every(Number.isFinite) && v.sx > 0 && v.sy > 0) {
-      graph.view = { cx: v.cx, cy: v.cy, sx: v.sx, sy: v.sy };
-    }
-    state.active = state.lines[0].id;
+
+    state.lines.forEach((line, i) => {
+      const card = $(`.card[data-id="${line.id}"]`);
+      if (!card) return;
+      const res = compiled.lines[i];
+      const err = $('.err-msg', card);
+      const meta = $('.card-meta', card);
+      const range = $('.range-row', card);
+      const badge = $('.val-badge', card);
+
+      card.classList.toggle('has-error', res.type === 'error');
+      err.hidden = res.type !== 'error';
+      err.textContent = res.error || '';
+
+      const needsRange = res.usesRange;
+      let valText = '';
+      if (res.type === 'constant') {
+        const v = res.literal ? res.value : res.evaluate();
+        if (Number.isFinite(v)) valText = `= ${+v.toPrecision(7)}`;
+      }
+      range.hidden = !needsRange;
+      badge.hidden = !valText;
+      badge.textContent = valText;
+      meta.hidden = !needsRange && !valText;
+    });
+
+    renderParams();
+    save();
+    requestDraw();
   }
 
-
-  // ---- Rendering ----
-  let pending = false, colors = null, interacting = false, endInteraction;
-  /**
-   * Reads the canvas colors from the CSS custom properties of the current theme.
-   */
-  function readTheme() {
-    const s = getComputedStyle(document.documentElement);
-    const v = (n) => s.getPropertyValue(n).trim();
-    colors = { bg: v('--bg'), text: v('--text'), axis: v('--axis'), grid: v('--grid'), gridFine: v('--grid-fine') };
-  }
-  const colorOf = (l) => (typeof l.color === 'number' ? PALETTE[state.theme][l.color] : l.color);
-
-  /**
-   * Schedules a single repaint on the next animation frame.
-   */
-  function redraw() {
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(() => { pending = false; paint(); });
-  }
-  /**
-   * Marks the view as moving (cheaper rendering) until 180 ms after the last event.
-   */
-  function motion() {
-    interacting = true;
-    clearTimeout(endInteraction);
-    endInteraction = setTimeout(() => { interacting = false; redraw(); }, 180);
-    hideTooltip();
-    redraw();
-  }
-
-  /**
-   * Returns [from, to] of a polar or parametric line, defaulting to 0..2π.
-   */
-  function rangeOf(l) {
-    const a = Formulas.evaluateNumber(l.from), b = Formulas.evaluateNumber(l.to);
-    return [Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : TWO_PI];
-  }
-  /**
-   * Builds the list of drawable objects from the visible, compiled lines.
-   */
-  function objects() {
+  function objectsToDraw() {
     const out = [];
-    state.lines.forEach((l, i) => {
+    state.lines.forEach((line, i) => {
+      if (!line.visible) return;
       const o = compiled.lines[i];
-      if (!o || !l.visible || ['error', 'empty', 'constant', 'function'].includes(o.type)) return;
+      if (!o || ['empty', 'error', 'constant', 'function'].includes(o.type)) return;
+      const a = Formulas.evaluateNumber(line.tMin);
+      const b = Formulas.evaluateNumber(line.tMax);
+      const defB = o.type === 'polar' ? 2 * Math.PI : 10;
+      const range = [Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : defB];
+      const dash = line.dash || 'solid';
       out.push({
-        id: l.id, o, range: rangeOf(l), derivative: l.derivative,
-        style: { color: colorOf(l), thickness: l.thickness, stroke: l.stroke },
+        id: line.id,
+        o,
+        range,
+        style: { color: line.color, thickness: line.thickness || 2.4, dash, stroke: dash },
       });
     });
     return out;
   }
-  /**
-   * Draws the graph and refreshes the live values in the list.
-   */
-  function paint() {
-    graph.draw(objects(), colors, { ...state.options, active: state.active, fast: interacting });
-    updateValues();
+
+  const listEl = $('#formula-list');
+
+  function makeLine(data = {}) {
+    const color = data.color || PALETTE[(state.nextId - 1) % PALETTE.length];
+    return {
+      id: state.nextId++,
+      text: data.text || '',
+      color,
+      visible: data.visible !== false,
+      thickness: data.thickness || 2.4,
+      dash: data.dash || 'solid',
+      tMin: data.tMin ?? '0',
+      tMax: data.tMax ?? '2pi',
+    };
   }
 
-  /**
-   * Recompiles every formula, syncs parameters and rows, then redraws and saves.
-   */
-  function recompile() {
-    compiled = Formulas.compileAll(state.lines.map((l) => l.text), globals);
-    for (const n of compiled.parameters) {
-      state.parameters[n] ||= { value: 1, min: -10, max: 10 };
-      globals[n] = state.parameters[n].value;
-    }
-    for (const o of compiled.lines) {
-      if (o.type === 'constant' && o.literal) {
-        const p = (state.parameters[o.name] ||= { value: o.value, min: -10, max: 10 });
-        p.value = o.value;
-        p.min = Math.min(p.min, o.value);
-        p.max = Math.max(p.max, o.value);
-        globals[o.name] = o.value;
-      }
-    }
-    for (const n of [...animating.keys()]) {
-      const keeps = compiled.parameters.includes(n) ||
-        compiled.lines.some((o) => o.type === 'constant' && o.literal && o.name === n);
-      if (!keeps) animating.delete(n);
-    }
-    state.lines.forEach((l, i) => updateRow(l, compiled.lines[i]));
-    updateParameters();
-    redraw();
-    save();
+  function renderList() {
+    listEl.innerHTML = '';
+    for (const line of state.lines) listEl.appendChild(createCard(line));
   }
 
+  function createCard(line) {
+    const card = document.createElement('div');
+    card.className = 'card' + (line.visible ? '' : ' hidden-line');
+    card.dataset.id = line.id;
+    card.innerHTML = `
+      <div class="card-row">
+        <button type="button" class="swatch${line.visible ? '' : ' off'}" style="background:${line.color}" title="Color and style"></button>
+        <input type="text" class="formula-input" spellcheck="false" autocomplete="off" placeholder="Write a formula, e.g. y = sin(x) or z = sin(x) cos(y)">
+        <div class="card-tools">
+          <button type="button" class="mini-btn eye" title="Show / hide">👁</button>
+          <button type="button" class="mini-btn dup" title="Duplicate">⧉</button>
+          <button type="button" class="mini-btn del" title="Delete">✕</button>
+        </div>
+      </div>
+      <div class="card-meta" hidden>
+        <div class="range-row" hidden>
+          <span>from</span><input type="text" class="tmin" value="${line.tMin}">
+          <span>to</span><input type="text" class="tmax" value="${line.tMax}">
+        </div>
+        <span class="val-badge" hidden></span>
+      </div>
+      <div class="err-msg" hidden></div>`;
 
-  // ---- Formula rows ----
-  const SVG_EYE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>';
-  const SVG_X = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
-  const el = (tag, props = {}, ...children) => {
-    const e = Object.assign(document.createElement(tag), props);
-    e.append(...children);
-    return e;
-  };
-
-  /**
-   * Creates the DOM row of one formula line and wires its event handlers.
-   * @returns {object} The row elements.
-   */
-  function createRow(l) {
-    const color = el('button', { type: 'button', className: 'color', title: 'Color and style' });
-    color.setAttribute('aria-label', 'Color and style');
-    const input = el('input', {
-      type: 'text', className: 'formula', value: l.text, placeholder: 'y = sin(x)',
-      spellcheck: false, autocomplete: 'off', maxLength: 500,
+    const input = $('.formula-input', card);
+    input.value = line.text;
+    input.addEventListener('focus', () => { activeInput = input; });
+    input.addEventListener('input', () => {
+      line.text = input.value;
+      state.activeExample = null;
+      recompile();
     });
-    input.setAttribute('autocapitalize', 'off');
-    input.setAttribute('autocorrect', 'off');
-    input.setAttribute('aria-label', 'Formula');
-    const statusEl = el('p', { className: 'status' });
-    const controls = el('div', { className: 'controls' });
-    const viewBtn = el('button', { type: 'button', innerHTML: SVG_EYE, title: 'Show or hide' });
-    viewBtn.setAttribute('aria-label', 'Show or hide');
-    const delBtn = el('button', { type: 'button', innerHTML: SVG_X, title: 'Delete' });
-    delBtn.setAttribute('aria-label', 'Delete formula');
-    const li = el('li', { className: 'row' }, color,
-      el('div', { className: 'body' }, input, statusEl, controls),
-      el('div', { className: 'side' }, delBtn, viewBtn));
-
-    input.addEventListener('input', () => { l.text = input.value; recompile(); });
-    input.addEventListener('focus', () => { state.active = l.id; redraw(); });
     input.addEventListener('keydown', (e) => {
-      const i = state.lines.indexOf(l);
-      if (e.key === 'Enter') { e.preventDefault(); add('', i + 1); }
-      if (e.key === 'ArrowUp' && i > 0) { e.preventDefault(); rows.get(state.lines[i - 1].id).input.focus(); }
-      if (e.key === 'ArrowDown' && i < state.lines.length - 1) { e.preventDefault(); rows.get(state.lines[i + 1].id).input.focus(); }
-      if (e.key === 'Backspace' && !input.value && state.lines.length > 1) { e.preventDefault(); remove(l); }
-    });
-    color.addEventListener('click', (e) => { e.stopPropagation(); openStyle(l, color); });
-    viewBtn.addEventListener('click', () => {
-      l.visible = !l.visible;
-      updateRow(l, compiled.lines[state.lines.indexOf(l)]);
-      redraw(); save();
-    });
-    delBtn.addEventListener('click', () => remove(l));
-    const f = { li, color, input, statusEl, controls, viewBtn, signature: null };
-    rows.set(l.id, f);
-    return f;
-  }
-
-  const NAMES = {
-    explicit: 'Function of x', explicitX: 'Function of y', polar: 'Polar curve', parametric: 'Parametric curve',
-    point: 'Point', implicit: 'Implicit equation', inequality: 'Region', function: 'Defined function', constant: 'Constant', empty: '',
-  };
-
-  /**
-   * Refreshes the status text and per-type controls (derivative, range, slider) of a row.
-   */
-  function updateRow(l, o) {
-    const f = rows.get(l.id);
-    if (!f || !o) return;
-    f.li.style.setProperty('--c', colorOf(l));
-    f.li.classList.toggle('hidden', !l.visible);
-    f.viewBtn.setAttribute('aria-pressed', String(!l.visible));
-    f.statusEl.classList.toggle('error', o.type === 'error');
-    f.statusEl.textContent = o.type === 'error' ? o.error : (NAMES[o.type] || '') + (l.visible ? '' : ' (hidden)');
-
-    const signature = [o.type, o.usesRange, o.name, o.literal].join('|');
-    if (f.signature !== signature) {
-      f.signature = signature;
-      f.controls.textContent = '';
-      if (o.type === 'explicit' || o.type === 'explicitX') {
-        const b = el('button', { type: 'button', textContent: 'Derivative' });
-        b.setAttribute('aria-pressed', String(l.derivative));
-        b.addEventListener('click', () => {
-          l.derivative = !l.derivative; b.setAttribute('aria-pressed', String(l.derivative)); redraw(); save();
-        });
-        f.controls.append(b);
-      }
-      if (o.usesRange) {
-        const v = o.type === 'polar' ? 'θ' : 't';
-        const field = (key, label) => {
-          const i = el('input', { type: 'text', value: l[key] });
-          i.setAttribute('aria-label', label);
-          i.addEventListener('input', () => {
-            const ok = Number.isFinite(Formulas.evaluateNumber(i.value));
-            i.classList.toggle('bad', !ok);
-            if (ok) { l[key] = i.value; redraw(); save(); }
-          });
-          return i;
-        };
-        f.controls.append(el('span', { textContent: `${v} from` }), field('from', `${v} from`),
-          el('span', { textContent: 'to' }), field('to', `${v} to`));
-      }
-      if (o.type === 'constant' && o.literal) f.controls.append(createSlider(o.name));
-    }
-  }
-
-
-  // ---- Parameters and sliders ----
-  const sliders = new Set();
-  const round = (v, p) => {
-    const step = (p.max - p.min) / 1000 || 0.01;
-    const dec = Math.max(0, Math.min(8, Math.ceil(-Math.log10(step))));
-    return Number(v.toFixed(dec));
-  };
-
-  /**
-   * Sets a parameter value, rewrites its defining line if any, and repaints.
-   */
-  function setParameter(name, value) {
-    const p = state.parameters[name];
-    p.value = value; globals[name] = value;
-    state.lines.forEach((l, i) => {
-      const o = compiled.lines[i];
-      if (o?.type === 'constant' && o.literal && o.name === name) {
-        const cond = l.text.indexOf('{');
-        // Avoid scientific notation: the parser would read "e" as Euler's constant
-        const written = String(value).includes('e') ? value.toFixed(10).replace(/\.?0+$/, '') : String(value);
-        l.text = `${name} = ${written}${cond >= 0 ? ' ' + l.text.slice(cond) : ''}`;
-        o.value = value;
-        rows.get(l.id).input.value = l.text;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const idx = state.lines.indexOf(line);
+        const created = addLine({}, idx + 1);
+        created.focus();
+      } else if (e.key === 'Backspace' && !input.value && state.lines.length > 1) {
+        e.preventDefault();
+        const idx = state.lines.indexOf(line);
+        removeLine(line.id);
+        const prev = listEl.children[Math.max(0, idx - 1)];
+        if (prev) $('.formula-input', prev).focus();
+      } else if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        moveLine(line.id, e.key === 'ArrowUp' ? -1 : 1);
       }
     });
-    sliders.forEach((d) => d.name === name && d.refresh());
-    motion(); save();
-  }
 
-  /**
-   * Creates a slider with min/max fields and an animate button for a parameter.
-   * @returns {HTMLElement} The slider box.
-   */
-  function createSlider(name) {
-    const p = state.parameters[name];
-    const title = el('span', { className: 'name' });
-    const range = el('input', { type: 'range', step: 'any' });
-    range.setAttribute('aria-label', `Value of ${name}`);
-    const play = el('button', { type: 'button', className: 'play' });
-    const limit = (key, label) => {
-      const i = el('input', { type: 'text', value: p[key] });
-      i.setAttribute('aria-label', `${label} of ${name}`);
-      i.addEventListener('change', () => {
-        const v = Formulas.evaluateNumber(i.value);
-        const ok = Number.isFinite(v) && (key === 'min' ? v < p.max : v > p.min);
-        i.classList.toggle('bad', !ok);
-        if (!ok) return;
-        p[key] = v;
-        setParameter(name, Math.min(p.max, Math.max(p.min, p.value)));
+    const swatch = $('.swatch', card);
+    swatch.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openStylePop(line, swatch);
+    });
+
+    $('.eye', card).addEventListener('click', () => {
+      line.visible = !line.visible;
+      card.classList.toggle('hidden-line', !line.visible);
+      swatch.classList.toggle('off', !line.visible);
+      save();
+      requestDraw();
+    });
+    $('.dup', card).addEventListener('click', () => {
+      const idx = state.lines.indexOf(line);
+      addLine({ ...line }, idx + 1).focus();
+    });
+    $('.del', card).addEventListener('click', () => removeLine(line.id));
+
+    for (const cls of ['tmin', 'tmax']) {
+      const el = $('.' + cls, card);
+      el.addEventListener('input', () => {
+        line[cls === 'tmin' ? 'tMin' : 'tMax'] = el.value;
+        save();
+        requestDraw();
       });
-      return i;
-    };
-    const min = limit('min', 'Minimum'), max = limit('max', 'Maximum');
-    const box = el('div', { className: 'slider' }, title, el('span'), range, play,
-      el('div', { className: 'limits' }, min, el('span', { textContent: 'min & max' }), max));
-    const d = {
-      name, box,
-      refresh() {
-        title.textContent = `${name} = ${String(p.value).replace('-', '−')}`;
-        range.min = p.min; range.max = p.max; range.value = p.value;
-        const on = animating.has(name);
-        play.textContent = on ? '❚❚' : '▶';
-        play.setAttribute('aria-label', `${on ? 'Pause' : 'Animate'} ${name}`);
-        play.title = on ? 'Pause' : 'Animate';
-      },
-    };
-    range.addEventListener('input', () => setParameter(name, round(Number(range.value), p)));
-    play.addEventListener('click', () => {
-      if (animating.has(name)) animating.delete(name); else animating.set(name, 1);
-      sliders.forEach((x) => x.refresh());
-      startAnimation();
-    });
-    sliders.add(d);
-    d.refresh();
-    return box;
-  }
-
-  let parameterSignature = '';
-  /**
-   * Rebuilds the Parameters panel when the set of parameters changes.
-   */
-  function updateParameters() {
-    for (const d of sliders) if (!d.box.isConnected) sliders.delete(d);
-    const list = compiled.parameters;
-    $('#secParameters').hidden = !list.length;
-    const signature = list.join(',');
-    if (signature !== parameterSignature) {
-      parameterSignature = signature;
-      const cont = $('#parameters');
-      cont.textContent = '';
-      for (const d of sliders) if (!d.box.isConnected) sliders.delete(d);
-      list.forEach((n) => cont.append(createSlider(n)));
     }
-    sliders.forEach((d) => d.refresh());
+    return card;
   }
 
-  /**
-   * Updates the live status of points and computed constants.
-   */
-  function updateValues() {
-    const f4 = (v) => (Number.isFinite(v) ? String(Number(v.toPrecision(6))).replace(/-/g, '−') : 'undefined');
-    state.lines.forEach((l, i) => {
-      const o = compiled.lines[i], f = rows.get(l.id);
-      if (!o || !f) return;
-      if (o.type === 'point') { const [x, y] = o.f(); f.statusEl.textContent = `Point (${f4(x)}, ${f4(y)})`; }
-      if (o.type === 'constant' && !o.literal) f.statusEl.textContent = `Constant: ${f4(o.evaluate())}`;
+  function addLine(data = {}, at = state.lines.length) {
+    const line = makeLine(data);
+    state.lines.splice(at, 0, line);
+    const card = createCard(line);
+    listEl.insertBefore(card, listEl.children[at] || null);
+    recompile();
+    return $('.formula-input', card);
+  }
+
+  function removeLine(id) {
+    if (state.lines.length <= 1) {
+      state.lines[0].text = '';
+      renderList();
+      recompile();
+      return;
+    }
+    const idx = state.lines.findIndex((l) => l.id === id);
+    if (idx < 0) return;
+    state.lines.splice(idx, 1);
+    listEl.children[idx].remove();
+    recompile();
+  }
+
+  function moveLine(id, dir) {
+    const i = state.lines.findIndex((l) => l.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= state.lines.length) return;
+    [state.lines[i], state.lines[j]] = [state.lines[j], state.lines[i]];
+    renderList();
+    recompile();
+    $('.formula-input', listEl.children[j]).focus();
+  }
+
+  function closeStylePop() {
+    if (stylePop) { stylePop.remove(); stylePop = null; styleTarget = null; }
+  }
+
+  function openStylePop(line, anchor) {
+    if (styleTarget === line.id) { closeStylePop(); return; }
+    closeStylePop();
+    styleTarget = line.id;
+    const pop = document.createElement('div');
+    pop.className = 'style-pop';
+    pop.innerHTML = `
+      <div class="colors">${PALETTE.map((c) => `<button type="button" data-c="${c}" style="background:${c}" class="${c === line.color ? 'active' : ''}"></button>`).join('')}</div>
+      <div class="style-row"><span>Stroke</span>
+        <div class="seg">
+          <button type="button" data-d="solid" class="${line.dash === 'solid' ? 'active' : ''}">Solid</button>
+          <button type="button" data-d="dashed" class="${line.dash === 'dashed' ? 'active' : ''}">Dashed</button>
+          <button type="button" data-d="dotted" class="${line.dash === 'dotted' ? 'active' : ''}">Dotted</button>
+        </div>
+      </div>
+      <div class="style-row"><span>Thickness</span><input type="range" min="1" max="6" step="0.2" value="${line.thickness}"></div>`;
+    document.body.appendChild(pop);
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = Math.min(window.innerWidth - 236, r.left) + 'px';
+    pop.style.top = Math.min(window.innerHeight - 170, r.bottom + 6) + 'px';
+
+    pop.addEventListener('click', (e) => e.stopPropagation());
+    pop.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
+      line.color = b.dataset.c;
+      anchor.style.background = line.color;
+      pop.querySelectorAll('[data-c]').forEach((x) => x.classList.toggle('active', x === b));
+      save();
+      requestDraw();
+    }));
+    pop.querySelectorAll('[data-d]').forEach((b) => b.addEventListener('click', () => {
+      line.dash = b.dataset.d;
+      pop.querySelectorAll('[data-d]').forEach((x) => x.classList.toggle('active', x === b));
+      save();
+      requestDraw();
+    }));
+    $('input[type="range"]', pop).addEventListener('input', (e) => {
+      line.thickness = parseFloat(e.target.value);
+      save();
+      requestDraw(true);
     });
+    stylePop = pop;
   }
 
-  let animation = 0, previous = 0;
-  /**
-   * Runs the frame loop that moves animated parameters back and forth between min and max.
-   */
-  function startAnimation() {
-    if (animation || !animating.size) return;
-    previous = performance.now();
-    const step = (now) => {
-      const dt = Math.min(0.1, (now - previous) / 1000);
-      previous = now;
-      for (const [n, dir] of animating) {
-        const p = state.parameters[n];
-        const span = p.max - p.min;
-        let v = p.value + dir * dt * span / 8, d = dir;
-        if (v >= p.max) { v = p.max; d = -1; }
-        if (v <= p.min) { v = p.min; d = 1; }
-        animating.set(n, d);
-        setParameter(n, round(v, p));
+  const paramsSec = $('#params-section');
+  const paramsEl = $('#params');
+
+  function renderParams() {
+    const names = Object.keys(state.params);
+    paramsSec.hidden = !names.length;
+    paramsEl.innerHTML = '';
+    for (const name of names) {
+      const p = state.params[name];
+      const row = document.createElement('div');
+      row.className = 'param';
+      row.innerHTML = `
+        <div class="param-top">
+          <button type="button" class="mini-btn play" title="Animate">${p.play ? '⏸' : '▶'}</button>
+          <span class="param-name">${name} =</span>
+          <input type="text" class="param-val" value="${p.value}">
+          <div class="param-bounds">
+            <input type="text" class="pmin" value="${p.min}" title="Minimum">
+            <span>…</span>
+            <input type="text" class="pmax" value="${p.max}" title="Maximum">
+          </div>
+        </div>
+        <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.value}">`;
+
+      const slider = $('input[type="range"]', row);
+      const valIn = $('.param-val', row);
+      const playBtn = $('.play', row);
+
+      const setVal = (v) => {
+        if (!Number.isFinite(v)) return;
+        p.value = +v.toPrecision(6);
+        globals[name] = p.value;
+        valIn.value = p.value;
+        slider.value = p.value;
+        compiled.lines.forEach((l, idx) => {
+          if (l.type === 'constant' && !l.literal && state.lines[idx]) {
+            const b = $(`.card[data-id="${state.lines[idx].id}"] .val-badge`);
+            const cv = l.evaluate();
+            if (b && Number.isFinite(cv)) b.textContent = `= ${+cv.toPrecision(7)}`;
+          }
+        });
+        requestDraw(true);
+      };
+
+      slider.addEventListener('input', () => setVal(parseFloat(slider.value)));
+      slider.addEventListener('change', save);
+      valIn.addEventListener('change', () => {
+        const v = Formulas.evaluateNumber(valIn.value);
+        if (Number.isFinite(v)) {
+          if (v < p.min) { p.min = v; slider.min = v; $('.pmin', row).value = v; }
+          if (v > p.max) { p.max = v; slider.max = v; $('.pmax', row).value = v; }
+          setVal(v);
+          save();
+        } else {
+          valIn.value = p.value;
+        }
+      });
+      for (const cls of ['pmin', 'pmax']) {
+        const b = $('.' + cls, row);
+        b.addEventListener('change', () => {
+          const v = Formulas.evaluateNumber(b.value);
+          if (!Number.isFinite(v)) { b.value = p[cls === 'pmin' ? 'min' : 'max']; return; }
+          if (cls === 'pmin' && v < p.max) { p.min = v; slider.min = v; }
+          if (cls === 'pmax' && v > p.min) { p.max = v; slider.max = v; }
+          p.step = +((p.max - p.min) / 200).toPrecision(2) || 0.01;
+          slider.step = p.step;
+          save();
+        });
       }
-      animation = animating.size ? requestAnimationFrame(step) : 0;
-    };
-    animation = requestAnimationFrame(step);
-  }
+      playBtn.addEventListener('click', () => {
+        p.play = !p.play;
+        playBtn.textContent = p.play ? '⏸' : '▶';
+        save();
+      });
 
-  /**
-   * Rebuilds every row from `state.lines` and recompiles.
-   */
-  function mountList() {
-    rows.clear(); sliders.clear(); parameterSignature = null;
-    $('#list').textContent = '';
-    state.lines.forEach((l) => $('#list').append(createRow(l).li));
-    recompile();
-  }
-  /**
-   * Inserts a new formula line and focuses it (maximum 100 lines).
-   * @param {string} [text] Initial formula.
-   * @param {number} [pos] Insert position.
-   */
-  function add(text = '', pos = state.lines.length) {
-    if (state.lines.length >= 100) return;
-    const used = new Set(state.lines.map((l) => l.color));
-    const free = [0, 1, 2, 3, 4, 5, 6, 7].find((i) => !used.has(i));
-    const l = newLine({ text });
-    if (free !== undefined) l.color = free;
-    state.lines.splice(pos, 0, l);
-    const f = createRow(l);
-    $('#list').insertBefore(f.li, $('#list').children[pos] || null);
-    state.active = l.id;
-    recompile();
-    f.input.focus();
-  }
-  /**
-   * Removes a line; an empty line is added if none remain.
-   */
-  function remove(l) {
-    closeStyle();
-    const i = state.lines.indexOf(l);
-    state.lines.splice(i, 1);
-    rows.get(l.id).li.remove();
-    rows.delete(l.id);
-    if (!state.lines.length) { add(); return; }
-    recompile();
-    rows.get(state.lines[Math.max(0, i - 1)].id).input.focus();
-  }
-
-
-  // ---- Style popup ----
-  const popup = $('#stylePopup');
-  let editing = null, anchor = null;
-  /**
-   * Opens the color, thickness and stroke popup next to a row's color button.
-   */
-  function openStyle(l, button) {
-    if (editing === l) { closeStyle(); return; }
-    editing = l; anchor = button;
-    const cont = $('#swatches');
-    cont.textContent = '';
-    PALETTE[state.theme].forEach((c, i) => {
-      const b = el('button', { type: 'button' });
-      b.style.background = c;
-      b.setAttribute('aria-label', `Color ${i + 1}`);
-      b.setAttribute('aria-pressed', String(l.color === i));
-      b.addEventListener('click', () => changeStyle('color', i));
-      cont.append(b);
-    });
-    $('#customColor').value = colorOf(l);
-    $('#thickness').value = l.thickness;
-    $('#stroke').value = l.stroke;
-    popup.hidden = false;
-    const r = button.getBoundingClientRect();
-    popup.style.left = `${Math.min(r.left, innerWidth - popup.offsetWidth - 8)}px`;
-    popup.style.top = `${Math.max(8, Math.min(r.bottom + 8, innerHeight - popup.offsetHeight - 8))}px`;
-    cont.firstChild.focus();
-  }
-  /**
-   * Applies one style property to the line being edited.
-   */
-  function changeStyle(key, value) {
-    if (!editing) return;
-    editing[key] = value;
-    if (key === 'color') {
-      [...$('#swatches').children].forEach((b, i) => b.setAttribute('aria-pressed', String(value === i)));
-      rows.get(editing.id).li.style.setProperty('--c', colorOf(editing));
+      row._sync = () => { valIn.value = p.value; slider.value = p.value; };
+      paramsEl.appendChild(row);
     }
-    redraw(); save();
   }
-  function closeStyle() { popup.hidden = true; editing = null; }
-  $('#customColor').addEventListener('input', (e) => changeStyle('color', e.target.value));
-  $('#thickness').addEventListener('input', (e) => changeStyle('thickness', Number(e.target.value)));
-  $('#stroke').addEventListener('change', (e) => changeStyle('stroke', e.target.value));
-  document.addEventListener('pointerdown', (e) => {
-    if (editing && !popup.contains(e.target) && e.target !== anchor) closeStyle();
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && editing) { closeStyle(); anchor.focus(); }
-  });
-  $('.scrollable').addEventListener('scroll', closeStyle);
 
-  /**
-   * Applies `state.theme` to the page and the canvas colors.
-   */
+  const viewInputs = { xmin: $('#xmin'), xmax: $('#xmax'), ymin: $('#ymin'), ymax: $('#ymax') };
+
+  function syncViewInputs() {
+    graph.syncBounds();
+    for (const k of Object.keys(viewInputs)) {
+      if (document.activeElement !== viewInputs[k]) {
+        viewInputs[k].value = +graph.view[k].toPrecision(5);
+      }
+    }
+  }
+
+  for (const [k, el] of Object.entries(viewInputs)) {
+    el.addEventListener('change', () => {
+      const v = Formulas.evaluateNumber(el.value);
+      if (!Number.isFinite(v)) { syncViewInputs(); return; }
+      graph.syncBounds();
+      const next = { ...graph.view, [k]: v };
+      if (next.xmax > next.xmin && next.ymax > next.ymin) {
+        graph.setView(next.xmin, next.xmax, next.ymin, next.ymax);
+        if (state.options.equal) graph.equalize();
+        save();
+        requestDraw();
+      }
+      syncViewInputs();
+    });
+  }
+
+  function bindOption(id, key, after) {
+    const el = $(id);
+    if (!el) return;
+    el.checked = !!state.options[key];
+    el.addEventListener('change', () => {
+      state.options[key] = el.checked;
+      if (after) after();
+      save();
+      requestDraw();
+    });
+  }
+  bindOption('#opt-grid', 'grid');
+  bindOption('#opt-axes', 'axes');
+  bindOption('#opt-trace', 'trace', () => { if (!state.options.trace) graph.pinned = null; });
+  bindOption('#opt-equal', 'equal', () => { if (state.options.equal) { graph.equalize(); syncViewInputs(); } });
+
+  const btnMode3d = $('#btn-mode3d');
+  const perfHud = $('#perf-hud');
+  const ndBar = $('#nd-bar');
+  const ndDrawer = $('#nd-drawer');
+  const ndFormulaInput = $('#nd-formula');
+  const ndFormulaErr = $('#nd-formula-err');
+  const ndPlanesEl = $('#nd-planes');
+  const btnNdFormulaClear = $('#btn-nd-formula-clear');
+  const btnNdMech = $('#btn-nd-mech');
+  const ndMechStyleSelect = $('#nd-mech-style');
+  const ndMechSegsSelect = $('#nd-mech-segs');
+  const meshSelect = $('#mesh-quality');
+  const btnRevolve = $('#btn-revolve');
+  const btnStress = $('#btn-stress');
+  const ndDimSelect = $('#nd-dim');
+  const ndShapeSelect = $('#nd-shape');
+  const btnNdSpin = $('#btn-nd-spin');
+
+  function renderNDPlanes() {
+    if (!ndPlanesEl || !polytope) return;
+    const planes = PolytopeND.listRotationPlanes(polytope.dim);
+    ndPlanesEl.innerHTML = '';
+    for (const p of planes) {
+      const val = polytope.angles[p.key] || 0;
+      const deg = radToDeg(val);
+      const wrap = document.createElement('div');
+      wrap.className = 'nd-plane';
+      wrap.innerHTML = `
+        <div class="nd-plane-head"><span>${p.label}</span><span class="nd-deg">${deg}°</span></div>
+        <input type="range" min="-3.1416" max="3.1416" step="0.02" value="${val.toFixed(3)}">`;
+      const slider = $('input[type="range"]', wrap);
+      const degLabel = $('.nd-deg', wrap);
+      slider.addEventListener('input', () => {
+        const rad = parseFloat(slider.value);
+        polytope.angles[p.key] = rad;
+        degLabel.textContent = `${radToDeg(rad)}°`;
+        state.polytopeMode = true;
+        if (!state.mode3d) setMode3D(true);
+        requestDraw(true);
+      });
+      ndPlanesEl.appendChild(wrap);
+    }
+  }
+
+  function syncNDPlanesUI() {
+    if (!ndPlanesEl || !polytope) return;
+    const planes = PolytopeND.listRotationPlanes(polytope.dim);
+    const items = ndPlanesEl.children;
+    planes.forEach((p, idx) => {
+      const item = items[idx];
+      if (!item) return;
+      const rad = polytope.angles[p.key] || 0;
+      const slider = $('input[type="range"]', item);
+      const degLabel = $('.nd-deg', item);
+      if (slider && document.activeElement !== slider) slider.value = rad.toFixed(3);
+      if (degLabel) degLabel.textContent = `${radToDeg(rad)}°`;
+    });
+  }
+
+  if (ndFormulaInput && polytope) {
+    ndFormulaInput.value = polytope.formulaText || '';
+    ndFormulaInput.addEventListener('input', () => {
+      const res = polytope.setFormula(ndFormulaInput.value);
+      if (ndFormulaErr) {
+        ndFormulaErr.hidden = !res.error;
+        ndFormulaErr.textContent = res.error;
+      }
+      if (!res.error) {
+        state.polytopeMode = true;
+        if (!state.mode3d) setMode3D(true);
+        save();
+        requestDraw();
+      }
+    });
+  }
+
+  if (btnNdFormulaClear && polytope) {
+    btnNdFormulaClear.addEventListener('click', () => {
+      if (ndFormulaInput) ndFormulaInput.value = '';
+      polytope.setFormula('');
+      if (ndFormulaErr) ndFormulaErr.hidden = true;
+      save();
+      requestDraw();
+    });
+  }
+
+  if (btnNdMech && polytope) {
+    btnNdMech.setAttribute('aria-pressed', String(polytope.mechEnabled));
+    btnNdMech.addEventListener('click', () => {
+      polytope.setMechEnabled(!polytope.mechEnabled);
+      btnNdMech.setAttribute('aria-pressed', String(polytope.mechEnabled));
+      state.polytopeMode = true;
+      if (!state.mode3d) setMode3D(true);
+      save();
+      requestDraw();
+    });
+  }
+
+  if (ndMechStyleSelect && polytope) {
+    ndMechStyleSelect.value = polytope.mechStyle;
+    ndMechStyleSelect.addEventListener('change', () => {
+      polytope.setMechStyle(ndMechStyleSelect.value);
+      polytope.setMechEnabled(true);
+      if (btnNdMech) btnNdMech.setAttribute('aria-pressed', 'true');
+      state.polytopeMode = true;
+      if (!state.mode3d) setMode3D(true);
+      save();
+      requestDraw();
+    });
+  }
+
+  if (ndMechSegsSelect && polytope) {
+    ndMechSegsSelect.value = String(polytope.mechSubdivisions);
+    ndMechSegsSelect.addEventListener('change', () => {
+      polytope.setMechSubdivisions(Number(ndMechSegsSelect.value));
+      polytope.setMechEnabled(true);
+      if (btnNdMech) btnNdMech.setAttribute('aria-pressed', 'true');
+      state.polytopeMode = true;
+      if (!state.mode3d) setMode3D(true);
+      save();
+      requestDraw();
+    });
+  }
+
+  if (ndDimSelect && polytope) {
+    ndDimSelect.value = String(polytope.dim);
+    ndDimSelect.addEventListener('change', () => {
+      polytope.setDimension(Number(ndDimSelect.value));
+      renderNDPlanes();
+      if (!state.mode3d) setMode3D(true);
+      state.polytopeMode = true;
+      save();
+      requestDraw();
+    });
+  }
+
+  if (ndShapeSelect && polytope) {
+    ndShapeSelect.value = polytope.shape;
+    ndShapeSelect.addEventListener('change', () => {
+      polytope.setShape(ndShapeSelect.value);
+      if (!state.mode3d) setMode3D(true);
+      state.polytopeMode = true;
+      save();
+      requestDraw();
+    });
+  }
+
+  if (btnNdSpin && polytope) {
+    btnNdSpin.setAttribute('aria-pressed', String(polytope.autoRotate));
+    btnNdSpin.addEventListener('click', () => {
+      polytope.autoRotate = !polytope.autoRotate;
+      btnNdSpin.setAttribute('aria-pressed', String(polytope.autoRotate));
+      requestDraw();
+    });
+  }
+
+  function updateMode3DUI() {
+    btnMode3d.setAttribute('aria-pressed', String(state.mode3d));
+    canvas.hidden = state.mode3d;
+    canvas3d.hidden = !state.mode3d;
+    if (perfHud) perfHud.hidden = !state.mode3d;
+    if (ndBar) ndBar.hidden = !state.mode3d;
+    if (ndDrawer) ndDrawer.hidden = !state.mode3d;
+    if (btnNdMech && polytope) btnNdMech.setAttribute('aria-pressed', String(polytope.mechEnabled));
+    if (ndMechStyleSelect && polytope) ndMechStyleSelect.value = polytope.mechStyle;
+    if (ndMechSegsSelect && polytope) ndMechSegsSelect.value = String(polytope.mechSubdivisions);
+    if (ndDimSelect && polytope) ndDimSelect.value = String(polytope.dim);
+    if (ndShapeSelect && polytope) ndShapeSelect.value = polytope.shape;
+    if (meshSelect) meshSelect.value = graph3d.quality;
+    if (btnRevolve) btnRevolve.setAttribute('aria-pressed', String(graph3d.revolveMode));
+    if (state.mode3d) {
+      graph3d.resize();
+      if (polytope) {
+        polytope.resize();
+        renderNDPlanes();
+      }
+      $('#coords').textContent = state.polytopeMode && polytope
+        ? `${polytope.dim}D ${polytope.shape} · Drag to orbit · Shift/Right-drag to pan`
+        : 'Drag to orbit · Shift/Right-drag to pan · Wheel to zoom';
+    } else {
+      graph.resize();
+      syncViewInputs();
+    }
+  }
+
+  function setMode3D(enabled) {
+    state.mode3d = enabled;
+    if (!enabled) state.polytopeMode = false;
+    if (state.activeExample !== null && EXAMPLES[state.activeExample]) {
+      loadExample(EXAMPLES[state.activeExample], state.activeExample, true);
+      return;
+    }
+    updateMode3DUI();
+    save();
+    requestDraw();
+  }
+
+  btnMode3d.addEventListener('click', () => setMode3D(!state.mode3d));
+
+  if (meshSelect) {
+    meshSelect.addEventListener('change', () => {
+      state.polytopeMode = false;
+      graph3d.quality = meshSelect.value;
+      save();
+      requestDraw();
+    });
+  }
+
+  if (btnRevolve) {
+    btnRevolve.addEventListener('click', () => {
+      state.polytopeMode = false;
+      graph3d.revolveMode = !graph3d.revolveMode;
+      btnRevolve.setAttribute('aria-pressed', String(graph3d.revolveMode));
+      save();
+      requestDraw();
+    });
+  }
+
+  if (btnStress) {
+    btnStress.addEventListener('click', () => {
+      state.polytopeMode = false;
+      if (!state.mode3d) setMode3D(true);
+      benchUntil = performance.now() + 3000;
+      requestDraw();
+    });
+  }
+
+  function updatePerfHud() {
+    if (!state.mode3d || !perfHud) return;
+    const m = graph3d.metrics;
+    $('#perf-fps').textContent = m.fps;
+    $('#perf-frame').textContent = m.frameMs.toFixed(1);
+    $('#perf-mesh').textContent = m.meshMs.toFixed(1);
+    $('#perf-tris').textContent = m.triangles.toLocaleString();
+    const badge = $('#perf-rating');
+    badge.textContent = benchUntil > performance.now() ? 'Benchmarking…' : m.rating;
+    badge.className = 'perf-badge' + (m.rating === 'Moderate' ? ' moderate' : m.rating === 'Heavy' ? ' heavy' : '');
+  }
+
   function applyTheme() {
-    document.documentElement.dataset.theme = state.theme;
-    readTheme();
-    state.lines.forEach((l) => rows.get(l.id)?.li.style.setProperty('--c', colorOf(l)));
-    closeStyle();
-    redraw();
+    document.documentElement.dataset.theme = state.options.dark ? 'dark' : 'light';
+    requestDraw();
   }
-  $('#btnTheme').addEventListener('click', () => {
-    state.theme = state.theme === 'light' ? 'dark' : 'light';
-    state.themeManual = true;
-    applyTheme(); save();
-  });
-  systemDark.addEventListener('change', () => {
-    if (state.themeManual) return;
-    state.theme = systemDark.matches ? 'dark' : 'light';
-    applyTheme(); save();
+  $('#btn-theme').addEventListener('click', () => {
+    state.options.dark = !state.options.dark;
+    applyTheme();
+    save();
   });
 
+  function canvasTheme() {
+    const s = getComputedStyle(document.documentElement);
+    return {
+      bg: s.getPropertyValue('--bg').trim(),
+      gridFine: state.options.dark ? 'rgba(255,255,255,.045)' : 'rgba(15,23,42,.055)',
+      gridMajor: state.options.dark ? 'rgba(255,255,255,.10)' : 'rgba(15,23,42,.11)',
+      axis: state.options.dark ? 'rgba(255,255,255,.42)' : 'rgba(15,23,42,.45)',
+      text: s.getPropertyValue('--muted').trim(),
+      labelBg: s.getPropertyValue('--panel').trim(),
+    };
+  }
 
-  // ---- Canvas interaction ----
-  const canvas = $('#graph'), tooltip = $('#tooltip'), coords = $('#coords');
+  const coordsEl = $('#coords');
   const pointers = new Map();
-  const position = (e) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  const shortNum = (v) => (Math.abs(v) < 1e-9 ? '0' : String(Number(v.toPrecision(5))).replace(/-/g, '−'));
-  function hideTooltip() {
-    if (tooltip.hidden) return;
-    tooltip.hidden = true;
-  }
-  /**
-   * Updates the coordinates readout, tooltip and highlighted point under the pointer.
-   */
-  function track(X, Y) {
-    coords.textContent = `x: ${shortNum(graph.mx(X))}   y: ${shortNum(graph.my(Y))}`;
-    const p = graph.nearest(X, Y);
-    paint();
-    if (!p) { hideTooltip(); return; }
-    graph.mark(p.X, p.Y, p.color, colors, 6);
-    tooltip.textContent = `${p.label ? p.label + '\n' : ''}x = ${shortNum(p.x)}\ny = ${shortNum(p.y)}` +
-      (Number.isFinite(p.slope) ? `\nslope = ${shortNum(Number(p.slope.toFixed(5)))}` : '');
-    tooltip.style.setProperty('--c', p.color);
-    tooltip.hidden = false;
-    const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
-    tooltip.style.left = `${p.X + 14 + w > graph.w ? p.X - w - 14 : p.X + 14}px`;
-    tooltip.style.top = `${p.Y - h - 12 < 0 ? p.Y + 14 : p.Y - h - 12}px`;
-  }
+  let drag = null;
+  let pinch = null;
 
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, position(e));
-    if (e.pointerType !== 'mouse' && pointers.size === 1) track(...position(e));
-  });
-  canvas.addEventListener('pointermove', (e) => {
-    const q = position(e), prev = pointers.get(e.pointerId);
-    if (!prev) { if (e.pointerType === 'mouse') track(...q); return; }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) {
-      const dx = q[0] - prev[0], dy = q[1] - prev[1];
-      if (!dx && !dy) return;
-      graph.pan(dx, dy);
+      drag = { x: e.clientX, y: e.clientY, view: { ...graph.view }, moved: false };
     } else if (pointers.size === 2) {
-      const other = [...pointers].find(([id]) => id !== e.pointerId)[1];
-      const d0 = Math.hypot(prev[0] - other[0], prev[1] - other[1]);
-      const d1 = Math.hypot(q[0] - other[0], q[1] - other[1]);
-      const center = [(q[0] + other[0]) / 2, (q[1] + other[1]) / 2];
-      graph.pan((q[0] - prev[0]) / 2, (q[1] - prev[1]) / 2);
-      if (d0 > 5 && d1 > 5) graph.zoom(d1 / d0, d1 / d0, ...center);
+      const [a, b] = [...pointers.values()];
+      pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), mid: [(a.x + b.x) / 2, (a.y + b.y) / 2] };
+      drag = null;
     }
-    pointers.set(e.pointerId, q);
-    motion(); save();
   });
-  const release = (e) => pointers.delete(e.pointerId);
-  canvas.addEventListener('pointerup', release);
-  canvas.addEventListener('pointercancel', release);
-  canvas.addEventListener('pointerleave', (e) => {
-    if (e.pointerType !== 'mouse') return;
-    coords.textContent = ''; hideTooltip(); redraw();
+
+  canvas.addEventListener('pointermove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    const sx = e.clientX - r.left, sy = e.clientY - r.top;
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pinch && pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d > 4 && pinch.dist > 4) {
+        const factor = d / pinch.dist;
+        graph.zoom(factor, factor, pinch.mid[0] - r.left, pinch.mid[1] - r.top);
+        syncViewInputs();
+        requestDraw(true);
+      }
+      pinch.dist = d;
+      return;
+    }
+
+    if (drag) {
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && Math.hypot(dx, dy) > 3) {
+        drag.moved = true;
+        canvas.classList.add('panning');
+      }
+      if (drag.moved) {
+        graph.view = { ...drag.view };
+        graph.pan(dx, dy);
+        syncViewInputs();
+        requestDraw(true);
+        return;
+      }
+    }
+
+    const x = graph.toMathX(sx), y = graph.toMathY(sy);
+    coordsEl.textContent = `${graph.fmt(x)}, ${graph.fmt(y)}`;
+    if (state.options.trace) {
+      const hit = graph.nearest(objectsToDraw(), sx, sy);
+      graph.hover = hit ? { ...hit, features: e.shiftKey } : null;
+      canvas.classList.toggle('hovering', !!hit);
+      requestDraw();
+    }
   });
+
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (drag) {
+      const wasClick = !drag.moved && e.type === 'pointerup';
+      drag = null;
+      canvas.classList.remove('panning');
+      fastUntil = 0;
+      if (wasClick && state.options.trace) {
+        const r = canvas.getBoundingClientRect();
+        const hit = graph.nearest(objectsToDraw(), e.clientX - r.left, e.clientY - r.top);
+        graph.pinned = hit ? { id: hit.id, x: hit.x, y: hit.y, t: hit.t } : null;
+      }
+      save();
+      requestDraw();
+    }
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('pointerleave', () => {
+    if (!drag && graph.hover) { graph.hover = null; requestDraw(); }
+  });
+
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    const delta = (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 33 : 1);
-    const k = Math.exp(-Math.max(-300, Math.min(300, delta)) * 0.0016);
-    graph.zoom(e.altKey ? 1 : k, e.shiftKey ? 1 : k, ...position(e));
-    motion(); save();
+    const r = canvas.getBoundingClientRect();
+    const factor = Math.pow(1.0016, -e.deltaY);
+    graph.zoom(factor, factor, e.clientX - r.left, e.clientY - r.top);
+    syncViewInputs();
+    save();
+    requestDraw(true);
   }, { passive: false });
-  canvas.addEventListener('dblclick', (e) => { graph.zoom(1.6, 1.6, ...position(e)); motion(); save(); });
-  canvas.addEventListener('keydown', (e) => {
-    const actions = {
-      ArrowLeft: () => graph.pan(40, 0), ArrowRight: () => graph.pan(-40, 0),
-      ArrowUp: () => graph.pan(0, 40), ArrowDown: () => graph.pan(0, -40),
-      '+': () => graph.zoom(1.25, 1.25), '-': () => graph.zoom(0.8, 0.8), 0: () => graph.home(),
+
+  canvas.addEventListener('dblclick', () => {
+    graph.home();
+    if (state.options.equal) graph.equalize();
+    syncViewInputs();
+    save();
+    requestDraw();
+  });
+
+  let orbitDrag = null;
+
+  canvas3d.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  canvas3d.addEventListener('pointerdown', (e) => {
+    canvas3d.setPointerCapture(e.pointerId);
+    const isPan = e.shiftKey || e.button === 1 || e.button === 2;
+    orbitDrag = {
+      x: e.clientX,
+      y: e.clientY,
+      mode: isPan ? 'pan' : 'orbit',
     };
-    if (actions[e.key] && !e.ctrlKey && !e.metaKey) { e.preventDefault(); actions[e.key](); motion(); save(); }
+    canvas3d.classList.add('panning');
   });
-  document.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => {
-    const t = b.dataset.zoom;
-    if (t === 'home') graph.home(); else { const k = t === 'in' ? 1.4 : 1 / 1.4; graph.zoom(k, k); }
-    motion(); save();
-  }));
 
-  function syncOptions() {
-    document.querySelectorAll('[data-op]').forEach((c) => { c.checked = state.options[c.dataset.op]; });
-  }
-  document.querySelectorAll('[data-op]').forEach((c) => c.addEventListener('change', () => {
-    state.options[c.dataset.op] = c.checked; redraw(); save();
-  }));
+  canvas3d.addEventListener('pointermove', (e) => {
+    if (!orbitDrag) return;
+    const dx = e.clientX - orbitDrag.x;
+    const dy = e.clientY - orbitDrag.y;
+    orbitDrag.x = e.clientX;
+    orbitDrag.y = e.clientY;
 
+    const active3d = state.polytopeMode && polytope ? polytope : graph3d;
 
-  // ---- Examples and clearing ----
-  const selector = $('#examples');
-  Object.keys(EXAMPLES).forEach((n) => selector.append(el('option', { value: n, textContent: n })));
-  /**
-   * Replaces the current graph with one of the EXAMPLES.
-   */
-  function loadExample(name) {
-    animating.clear(); closeStyle();
-    nextId = 1;
-    state.lines = EXAMPLES[name].map((t) => newLine(typeof t === 'string' ? { text: t } : t));
-    state.parameters = {};
-    state.active = state.lines[0].id;
-    state.options.polar = name === 'Polar flower';
-    state.options.pi = name === 'Asymptotes & jumps';
-    if (name === 'Traveling wave') state.parameters.c = { value: 0, min: 0, max: 20 };
-    if (name === 'Polar flower') state.parameters.k = { value: 4, min: 1, max: 8 };
-    syncOptions();
-    graph.home();
-    mountList();
-    if (name === 'Traveling wave') { animating.set('c', 1); sliders.forEach((d) => d.refresh()); startAnimation(); }
-  }
-  selector.addEventListener('change', () => { if (selector.value) loadExample(selector.value); selector.value = ''; });
-
-  /**
-   * Resets to a single blank formula line with no curves.
-   */
-  function startEmpty() {
-    animating.clear(); closeStyle();
-    nextId = 1;
-    state.lines = [newLine()];
-    state.parameters = {};
-    state.active = state.lines[0].id;
-    graph.home();
-    mountList();
-  }
-
-  $('#btnNew').addEventListener('click', () => add());
-  $('#btnClear').addEventListener('click', () => {
-    const used = state.lines.some((l) => l.text.trim());
-    if (used && !window.confirm('Remove all formulas and start with an empty graph?')) return;
-    startEmpty();
-    $('#notice').textContent = 'Graph cleared.';
+    if (orbitDrag.mode === 'pan') {
+      active3d.pan(dx, dy);
+      const { x, y, z } = active3d.camera.target;
+      coordsEl.textContent = `Target (${graph.fmt(x)}, ${graph.fmt(y)}, ${graph.fmt(z)})`;
+    } else {
+      active3d.orbit(dx, dy);
+      coordsEl.textContent = `Yaw ${radToDeg(active3d.camera.yaw)}° · Pitch ${radToDeg(active3d.camera.pitch)}°`;
+    }
+    requestDraw(true);
   });
-  $('#btnHelp').addEventListener('click', () => $('#help').showModal());
 
-  // ---- Export and import (PNG, SVG, LaTeX, MathML, JSON) ----
-  const xmlEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const endOrbit = () => {
+    if (!orbitDrag) return;
+    orbitDrag = null;
+    canvas3d.classList.remove('panning');
+    fastUntil = 0;
+    save();
+    requestDraw();
+  };
+  canvas3d.addEventListener('pointerup', endOrbit);
+  canvas3d.addEventListener('pointercancel', endOrbit);
 
-  function dashAttr(stroke, thickness) {
-    if (stroke === 'dashed') return ` stroke-dasharray="${(thickness * 3.5).toFixed(2)} ${(thickness * 2.5).toFixed(2)}"`;
-    if (stroke === 'dotted') return ` stroke-dasharray="0.1 ${(thickness * 2.4).toFixed(2)}"`;
-    return '';
+  canvas3d.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = Math.pow(1.0016, -e.deltaY);
+    const active3d = state.polytopeMode && polytope ? polytope : graph3d;
+    active3d.zoom(factor);
+    save();
+    requestDraw(true);
+  }, { passive: false });
+
+  canvas3d.addEventListener('dblclick', () => {
+    const active3d = state.polytopeMode && polytope ? polytope : graph3d;
+    active3d.home();
+    if (state.polytopeMode && polytope) syncNDPlanesUI();
+    save();
+    requestDraw();
+  });
+
+  const stepZoom = (f) => {
+    if (state.mode3d) {
+      const active3d = state.polytopeMode && polytope ? polytope : graph3d;
+      active3d.zoom(f);
+      save();
+      requestDraw();
+      return;
+    }
+    graph.zoom(f, f, graph.w / 2, graph.h / 2);
+    syncViewInputs();
+    save();
+    requestDraw();
+  };
+  $('#btn-zin').addEventListener('click', () => stepZoom(1.35));
+  $('#btn-zout').addEventListener('click', () => stepZoom(1 / 1.35));
+
+  const goHome = () => {
+    if (state.mode3d) {
+      const active3d = state.polytopeMode && polytope ? polytope : graph3d;
+      active3d.home();
+      if (state.polytopeMode && polytope) syncNDPlanesUI();
+      save();
+      requestDraw();
+      return;
+    }
+    graph.home();
+    if (state.options.equal) graph.equalize();
+    syncViewInputs();
+    save();
+    requestDraw();
+  };
+  $('#btn-zhome').addEventListener('click', goHome);
+  $('#btn-home').addEventListener('click', goHome);
+
+  $('#btn-png').addEventListener('click', () => {
+    const activeCanvas = state.mode3d ? canvas3d : canvas;
+    if (state.mode3d) {
+      if (state.polytopeMode && polytope) polytope.draw(canvasTheme());
+      else graph3d.draw(objectsToDraw(), canvasTheme(), { ...state.options, fast: false });
+    } else {
+      graph.draw(objectsToDraw(), canvasTheme(), { ...state.options, fast: false });
+    }
+    const a = document.createElement('a');
+    a.download = state.mode3d ? 'graph-3d.png' : 'graph.png';
+    a.href = activeCanvas.toDataURL('image/png');
+    a.click();
+  });
+
+  $('#keypad').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (!activeInput || !document.body.contains(activeInput)) {
+      activeInput = $('.formula-input', listEl);
+    }
+    if (!activeInput) return;
+    const ins = b.dataset.ins;
+    const s = activeInput.selectionStart ?? activeInput.value.length;
+    const end = activeInput.selectionEnd ?? s;
+    activeInput.value = activeInput.value.slice(0, s) + ins + activeInput.value.slice(end);
+    const caret = ins === '||' || ins === '{}' ? s + 1 : s + ins.length;
+    activeInput.focus();
+    activeInput.setSelectionRange(caret, caret);
+    activeInput.dispatchEvent(new Event('input'));
+  });
+
+  const exPop = $('#examples-pop');
+  const exBtn = $('#btn-examples');
+  exPop.innerHTML = EXAMPLES.map((ex, i) => `
+    <button type="button" class="ex-item" data-i="${i}">
+      <strong>${ex.name}</strong>
+      <span>${ex.lines.map((l) => l.text).join('  ·  ')}</span>
+    </button>`).join('');
+
+  exPop.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]');
+    if (!b) return;
+    const idx = +b.dataset.i;
+    state.polytopeMode = false;
+    loadExample(EXAMPLES[idx], idx, false);
+    exPop.hidden = true;
+    exBtn.setAttribute('aria-expanded', 'false');
+  });
+
+  exBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = exPop.hidden;
+    exPop.hidden = !open;
+    exBtn.setAttribute('aria-expanded', String(open));
+  });
+
+  function loadExample(ex, idx, preserveMode) {
+    state.activeExample = idx;
+    const sourceLines = state.mode3d && ex.lines3d ? ex.lines3d : ex.lines;
+    state.lines = sourceLines.map((l) => makeLine(l));
+    state.params = {};
+    if (ex.params) {
+      for (const [k, v] of Object.entries(ex.params)) state.params[k] = { play: false, ...v };
+    }
+    if (!preserveMode && ex.revolve3d && state.mode3d) {
+      graph3d.revolveMode = true;
+    } else if (state.mode3d) {
+      graph3d.revolveMode = Boolean(ex.revolve3d);
+    }
+    graph.setView(...ex.view);
+    if (state.options.equal) graph.equalize();
+    graph.pinned = null;
+    syncViewInputs();
+    renderList();
+    recompile();
+    updateMode3DUI();
+    requestDraw();
+    const first = $('.formula-input', listEl);
+    if (first) first.focus();
   }
 
-  function polylineSvg(segments, style) {
-    const d = segments
-      .filter((s) => s.length > 1)
-      .map((s) => s.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' '))
-      .join(' ');
-    if (!d) return '';
-    return `<path d="${d}" fill="none" stroke="${xmlEscape(style.color)}" stroke-width="${style.thickness}" stroke-linecap="round" stroke-linejoin="round"${dashAttr(style.stroke, style.thickness)}${style.alpha != null ? ` opacity="${style.alpha}"` : ''}/>`;
-  }
+  const helpModal = $('#help-modal');
+  $('#btn-help').addEventListener('click', () => { helpModal.hidden = false; });
+  $('#btn-help-close').addEventListener('click', () => { helpModal.hidden = true; });
+  helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.hidden = true; });
 
-  /**
-   * Generates a standalone vector SVG representation of the current graph.
-   * @returns {string} SVG markup.
-   */
-  function buildSvg() {
-    const w = Math.max(1, Math.round(graph.w)), h = Math.max(1, Math.round(graph.h));
-    const v = graph.view, op = state.options;
-    const gx = op.pi ? Graph.stepPi(v.sx) : Graph.step(v.sx);
-    const gy = Graph.step(v.sy);
-    const x0 = graph.mx(0), x1 = graph.mx(w), y0 = graph.my(h), y1 = graph.my(0);
-    const parts = [
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`,
-      `<rect width="${w}" height="${h}" fill="${xmlEscape(colors.bg)}"/>`,
-    ];
+  document.addEventListener('click', (e) => {
+    if (!exPop.hidden && !exPop.contains(e.target) && e.target !== exBtn) {
+      exPop.hidden = true;
+      exBtn.setAttribute('aria-expanded', 'false');
+    }
+    if (stylePop && !stylePop.contains(e.target)) closeStylePop();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { helpModal.hidden = true; exPop.hidden = true; closeStylePop(); }
+  });
 
-    if (op.grid) {
-      if (op.polar) {
-        const ox = graph.px(0), oy = graph.py(0);
-        const far = Math.max(...[[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => Math.hypot(graph.mx(x), graph.my(y))));
-        const near = Math.hypot(Math.max(graph.mx(0), 0, -graph.mx(w)), Math.max(graph.my(h), 0, -graph.my(0)));
-        const start = Math.max(1, Math.floor(near / gy.major));
-        for (let i = start; i * gy.major <= far && i < start + 200; i++) {
-          parts.push(`<ellipse cx="${ox.toFixed(2)}" cy="${oy.toFixed(2)}" rx="${(i * gy.major * v.sx).toFixed(2)}" ry="${(i * gy.major * v.sy).toFixed(2)}" fill="none" stroke="${xmlEscape(colors.grid)}" stroke-width="1"/>`);
-        }
-        for (let k = 0; k < 24; k++) {
-          const a = k * Math.PI / 12;
-          parts.push(`<line x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${graph.px(Math.cos(a) * far).toFixed(2)}" y2="${graph.py(Math.sin(a) * far).toFixed(2)}" stroke="${xmlEscape(colors.gridFine)}" stroke-width="1"/>`);
-        }
-      } else {
-        const gridLine = (step, vertical, strokeCol) => {
-          const a = vertical ? x0 : y0, b = vertical ? x1 : y1;
-          for (let i = Math.ceil(a / step); i <= Math.floor(b / step); i++) {
-            const q = Math.round(vertical ? graph.px(i * step) : graph.py(i * step)) + 0.5;
-            if (vertical) parts.push(`<line x1="${q}" y1="0" x2="${q}" y2="${h}" stroke="${xmlEscape(strokeCol)}" stroke-width="1"/>`);
-            else parts.push(`<line x1="0" y1="${q}" x2="${w}" y2="${q}" stroke="${xmlEscape(strokeCol)}" stroke-width="1"/>`);
-          }
-        };
-        gridLine(gx.major / gx.div, true, colors.gridFine);
-        gridLine(gy.major / gy.div, false, colors.gridFine);
-        gridLine(gx.major, true, colors.grid);
-        gridLine(gy.major, false, colors.grid);
+  const sidebar = $('#sidebar');
+  $('#btn-panel').addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+    onResize();
+  });
+
+  const splitter = $('#splitter');
+  splitter.addEventListener('pointerdown', (e) => {
+    splitter.setPointerCapture(e.pointerId);
+    splitter.classList.add('dragging');
+    const move = (ev) => {
+      sidebar.style.width = Math.max(260, Math.min(window.innerWidth * 0.6, ev.clientX)) + 'px';
+      onResize();
+    };
+    const up = () => {
+      splitter.classList.remove('dragging');
+      splitter.removeEventListener('pointermove', move);
+      splitter.removeEventListener('pointerup', up);
+    };
+    splitter.addEventListener('pointermove', move);
+    splitter.addEventListener('pointerup', up);
+  });
+
+  $('#btn-add').addEventListener('click', () => addLine().focus());
+  $('#btn-clear').addEventListener('click', () => {
+    state.activeExample = null;
+    state.lines = [makeLine()];
+    state.params = {};
+    graph.pinned = null;
+    renderList();
+    recompile();
+    $('.formula-input', listEl).focus();
+  });
+
+  let lastT = performance.now();
+
+  function tick(now) {
+    const dt = Math.min(0.1, (now - lastT) / 1000);
+    lastT = now;
+
+    let animated = false;
+    const rows = paramsEl.children;
+    Object.keys(state.params).forEach((name, idx) => {
+      const p = state.params[name];
+      if (!p.play) return;
+      animated = true;
+      p.value += ((p.max - p.min) / 6) * dt;
+      if (p.value > p.max) p.value = p.min;
+      p.value = +p.value.toPrecision(5);
+      globals[name] = p.value;
+      if (rows[idx] && rows[idx]._sync) rows[idx]._sync();
+    });
+
+    if (state.mode3d && state.polytopeMode && polytope) {
+      polytope.stepAnimation(dt);
+      if (polytope.autoRotate) {
+        animated = true;
+        syncNDPlanesUI();
       }
     }
 
-    if (op.axes) {
-      const ex = Math.round(graph.px(0)) + 0.5, ey = Math.round(graph.py(0)) + 0.5;
-      parts.push(`<line x1="0" y1="${ey}" x2="${w}" y2="${ey}" stroke="${xmlEscape(colors.axis)}" stroke-width="1.5"/>`);
-      parts.push(`<line x1="${ex}" y1="0" x2="${ex}" y2="${h}" stroke="${xmlEscape(colors.axis)}" stroke-width="1.5"/>`);
-      const ly = Math.min(h - 16, Math.max(4, ey + 5));
-      for (let i = Math.ceil(x0 / gx.major); i <= Math.floor(x1 / gx.major); i++) {
-        if (i === 0) continue;
-        const val = i * gx.major;
-        const lbl = op.pi ? Graph.labelPi(val) : Graph.number(val, gx.major);
-        parts.push(`<text x="${graph.px(val).toFixed(2)}" y="${ly}" text-anchor="middle" dominant-baseline="hanging" font-family="system-ui, sans-serif" font-size="12" fill="${xmlEscape(colors.text)}">${xmlEscape(lbl)}</text>`);
-      }
-      const inside = ex > 36, lx = Math.min(w - 6, Math.max(6, ex - 7));
-      for (let i = Math.ceil(y0 / gy.major); i <= Math.floor(y1 / gy.major); i++) {
-        if (i === 0) continue;
-        const lbl = Graph.number(i * gy.major, gy.major);
-        parts.push(`<text x="${lx}" y="${graph.py(i * gy.major).toFixed(2)}" text-anchor="${inside ? 'end' : 'start'}" dominant-baseline="central" font-family="system-ui, sans-serif" font-size="12" fill="${xmlEscape(colors.text)}">${xmlEscape(lbl)}</text>`);
-      }
-      if (ex > 14 && ey < h - 14) {
-        parts.push(`<text x="${ex - 6}" y="${ey + 5}" text-anchor="end" dominant-baseline="hanging" font-family="system-ui, sans-serif" font-size="12" fill="${xmlEscape(colors.text)}">0</text>`);
-      }
+    if (now < benchUntil && state.mode3d) {
+      graph3d.orbit(3.2, 0.8);
+      animated = true;
     }
 
-    const drawn = objects();
-    const order = [...drawn].sort((a, b) => (b.o.type === 'inequality') - (a.o.type === 'inequality'));
-    for (const item of order) {
-      const { o, style } = item;
-      if (o.type === 'explicit' || o.type === 'explicitX') {
-        const segs = graph.explicitSegments(o.f, o.type === 'explicit' ? 'x' : 'y');
-        parts.push(polylineSvg(segs, style));
-        if (item.derivative) {
-          const dFn = (u) => Formulas.derivative(o.f, u);
-          parts.push(polylineSvg(graph.explicitSegments(dFn, o.type === 'explicit' ? 'x' : 'y'),
-            { ...style, thickness: Math.max(1.2, style.thickness * 0.65), stroke: 'dashed', alpha: 0.75 }));
-        }
-      } else if (o.type === 'polar' || o.type === 'parametric') {
-        const [a, b] = item.range;
-        const point = o.type === 'polar'
-          ? (t) => { const r = o.f(t); return [graph.px(r * Math.cos(t)), graph.py(r * Math.sin(t)), t]; }
-          : (t) => { const [x, y] = o.f(t); return [graph.px(x), graph.py(y), t]; };
-        const n = Math.min(6000, Math.max(600, Math.ceil(Math.abs(b - a) * 60)));
-        parts.push(polylineSvg(graph.sample(point, a, b, n), style));
-      } else if (o.type === 'implicit' || o.type === 'inequality') {
-        if (o.type === 'inequality') {
-          const strict = o.op === '<' || o.op === '>';
-          const borderStyle = { ...style, stroke: strict ? 'dashed' : style.stroke };
-          const b = o.border;
-          if (b && !b.restricted) {
-            const segs = graph.explicitSegments(b.f, b.axis === 'y' ? 'x' : 'y');
-            const vertical = b.axis === 'y';
-            const bound = vertical ? (b.greater ? -10 : h + 10) : (b.greater ? w + 10 : -10);
-            for (const t of segs) {
-              if (!t.length) continue;
-              const a = t[0], z = t[t.length - 1];
-              const poly = vertical
-                ? `${t.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ')} ${z[0].toFixed(2)},${bound} ${a[0].toFixed(2)},${bound}`
-                : `${t.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ')} ${bound},${z[1].toFixed(2)} ${bound},${a[1].toFixed(2)}`;
-              parts.push(`<polygon points="${poly}" fill="${xmlEscape(style.color)}" fill-opacity="0.17"/>`);
-            }
-            parts.push(polylineSvg(segs, borderStyle));
-          } else {
-            parts.push(polylineSvg(graph.contour(o.F, 4), borderStyle));
-          }
+    const inFastWindow = fastUntil > 0 && now < fastUntil;
+    if (fastUntil > 0 && now >= fastUntil) {
+      fastUntil = 0;
+      dirty = true;
+    }
+
+    if (animated || dirty) {
+      const fast = inFastWindow && now >= benchUntil;
+      dirty = false;
+      const drawOpts = { ...state.options, fast, notables: state.options.trace };
+      if (state.mode3d) {
+        if (state.polytopeMode && polytope) {
+          polytope.draw(canvasTheme());
         } else {
-          parts.push(polylineSvg(graph.contour(o.F, 3), { ...style, stroke: 'solid' }));
+          graph3d.draw(objectsToDraw(), canvasTheme(), drawOpts);
+          updatePerfHud();
         }
-      } else if (o.type === 'point') {
-        const [x, y] = o.f();
-        if (Number.isFinite(x) && Number.isFinite(y)) {
-          parts.push(`<circle cx="${graph.px(x).toFixed(2)}" cy="${graph.py(y).toFixed(2)}" r="${(3 + style.thickness).toFixed(2)}" fill="${xmlEscape(style.color)}" stroke="${xmlEscape(colors.bg)}" stroke-width="2"/>`);
-        }
-      }
-    }
-
-    for (const p of graph.notables) {
-      parts.push(`<circle cx="${p.X.toFixed(2)}" cy="${p.Y.toFixed(2)}" r="4" fill="${xmlEscape(p.color)}" stroke="${xmlEscape(colors.bg)}" stroke-width="2"/>`);
-    }
-
-    const visible = drawn.map((o) => ({ color: o.style.color, text: state.lines.find((l) => l.id === o.id)?.text || '' })).filter((v) => v.text);
-    if (visible.length) {
-      const measureCtx = canvas.getContext('2d');
-      measureCtx.font = '15px "Cambria Math", Cambria, serif';
-      const maxTextW = Math.max(...visible.map((v) => measureCtx.measureText(v.text).width), 140);
-      const boxW = Math.min(w - 24, Math.ceil(maxTextW + 54));
-      const boxH = visible.length * 22 + 12;
-      parts.push(`<rect x="12" y="12" width="${boxW}" height="${boxH}" fill="${xmlEscape(colors.bg)}" stroke="${xmlEscape(colors.grid)}" stroke-width="1"/>`);
-      visible.forEach((v, i) => {
-        const y = 29 + i * 22;
-        parts.push(`<rect x="20" y="${y - 3}" width="12" height="6" fill="${xmlEscape(v.color)}"/>`);
-        parts.push(`<text x="40" y="${y}" dominant-baseline="central" font-family="Cambria Math, Cambria, serif" font-size="15" fill="${xmlEscape(colors.text)}">${xmlEscape(v.text)}</text>`);
-      });
-    }
-
-    parts.push('</svg>');
-    return parts.join('\n');
-  }
-
-  /**
-   * Converts a plain Grapher formula expression into a readable LaTeX expression
-   * for common elementary functions, constants, roots, and exponents.
-   */
-  function formulaToLatex(raw) {
-    let s = raw.trim();
-    if (!s) return '';
-    s = s.replace(/\\text\{[^}]*\}/g, '');
-    s = s.replace(/<=/g, '\\le ').replace(/>=/g, '\\ge ');
-    s = s.replace(/\bpi\b/g, '\\pi').replace(/\btau\b/g, '\\tau').replace(/\btheta\b/g, '\\theta');
-    s = s.replace(/\b(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|sinh|cosh|tanh|ln|log)\b/g, '\\$1');
-    s = s.replace(/\bsqrt\(([^()]+)\)/g, '\\sqrt{$1}');
-    s = s.replace(/\^(\([^()]+\)|[A-Za-z0-9]+)/g, (_, exp) => `^{${exp.replace(/^\(|\)$/g, '')}}`);
-    return s;
-  }
-
-  /**
-   * Builds a LaTeX (.tex) document containing the active formulas.
-   */
-  function buildLatex() {
-    const items = state.lines.map((l) => l.text.trim()).filter((t) => t && !t.startsWith('#'));
-    const body = items.length
-      ? items.map((t, idx) => `  ${formulaToLatex(t)}${idx < items.length - 1 ? ' \\\\' : ''}`).join('\n')
-      : '  y = x^2';
-    return [
-      '% Exported from Grapher',
-      '\\documentclass{article}',
-      '\\usepackage{amsmath}',
-      '\\begin{document}',
-      '\\begin{aligned}',
-      body,
-      '\\end{aligned}',
-      '\\end{document}',
-      '',
-    ].join('\n');
-  }
-
-  /**
-   * Builds a MathML (.xml / .mml) document representing the formulas.
-   */
-  function buildMathMl() {
-    const items = state.lines.map((l) => l.text.trim()).filter((t) => t && !t.startsWith('#'));
-    const children = (items.length ? items : ['y = x^2']).map((t) =>
-      `    <semantics><annotation encoding="application/x-grapher">${xmlEscape(t)}</annotation><mtext>${xmlEscape(t)}</mtext></semantics>`
-    ).join('\n');
-    return [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">',
-      '  <mrow>',
-      children,
-      '  </mrow>',
-      '</math>',
-      '',
-    ].join('\n');
-  }
-
-  /**
-   * Converts common LaTeX or MathML constructs into Grapher formula lines.
-   * @param {string} raw File text.
-   * @returns {string[]} Extracted formula strings.
-   */
-  function parseLatexOrMathMl(raw) {
-    const text = raw.trim();
-    if (!text) return [];
-
-    if (text.startsWith('<') || /<math[\s>]/i.test(text)) {
-      const doc = new DOMParser().parseFromString(text, 'application/xml');
-      if (doc.querySelector('parsererror')) throw new Error('xml');
-      const annotations = [...doc.querySelectorAll('annotation')].map((n) => n.textContent.trim()).filter(Boolean);
-      if (annotations.length) return annotations;
-      const mtexts = [...doc.querySelectorAll('mtext')].map((n) => n.textContent.trim()).filter(Boolean);
-      if (mtexts.length) return mtexts;
-      const root = doc.querySelector('math') || doc.documentElement;
-      const tokens = [...root.querySelectorAll('mi, mn, mo')].map((n) => n.textContent.trim()).filter(Boolean);
-      return tokens.length ? [tokens.join(' ')] : [];
-    }
-
-    const cleaned = text
-      .replace(/%.*$/gm, '')
-      .replace(/\\begin\{aligned\}|\\end\{aligned\}|\\\[|\\\]|\\\(|\\\)|\\documentclass(\[[^\]]*\])?\{[^}]*\}|\\usepackage(\[[^\]]*\])?\{[^}]*\}|\\begin\{document\}|\\end\{document\}/g, '\n');
-
-    return cleaned
-      .split(/\\\\|\n/)
-      .map((line) => line
-        .replace(/&=/g, '=')
-        .replace(/&/g, ' ')
-        .replace(/\\left|\\right/g, '')
-        .replace(/\\le\b/g, '<=')
-        .replace(/\\ge\b/g, '>=')
-        .replace(/\\cdot|\\times/g, '*')
-        .replace(/\\pi\b/g, 'π')
-        .replace(/\\tau\b/g, 'τ')
-        .replace(/\\theta\b/g, 'θ')
-        .replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)')
-        .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)/($2)')
-        .replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|sinh|cosh|tanh|ln|log)\b/g, '$1')
-        .replace(/\^\{([^{}]+)\}/g, '^($1)')
-        .replace(/[{}]/g, '')
-        .trim())
-      .filter(Boolean);
-  }
-
-  /**
-   * Downloads a Blob as a file.
-   */
-  function download(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = el('a', { href: url, download: filename });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  }
-  $('#btnPng').addEventListener('click', () => {
-    interacting = false; paint();
-    const copy = el('canvas', { width: canvas.width, height: canvas.height });
-    const c = copy.getContext('2d');
-    c.drawImage(canvas, 0, 0);
-    c.scale(graph.dpr, graph.dpr);
-    const visible = objects().map((o) => ({ color: o.style.color, text: state.lines.find((l) => l.id === o.id).text }));
-    if (visible.length) {
-      c.font = '16px "Cambria Math", Cambria, serif'; c.textBaseline = 'middle';
-      const width = Math.min(graph.w - 24, Math.max(...visible.map((v) => c.measureText(v.text).width)) + 42);
-      c.fillStyle = colors.bg; c.strokeStyle = colors.grid;
-      c.fillRect(12, 12, width, visible.length * 24 + 12); c.strokeRect(12, 12, width, visible.length * 24 + 12);
-      visible.forEach((v, i) => {
-        const y = 30 + i * 24;
-        c.fillStyle = v.color; c.fillRect(21, y - 3, 12, 6);
-        c.fillStyle = colors.text; c.fillText(v.text, 41, y, width - 40);
-      });
-    }
-    copy.toBlob((b) => { if (b) { download(b, 'graph.png'); $('#notice').textContent = 'Image saved.'; } });
-  });
-  $('#btnSvg').addEventListener('click', () => {
-    interacting = false; paint();
-    download(new Blob([buildSvg()], { type: 'image/svg+xml;charset=utf-8' }), 'graph.svg');
-    $('#notice').textContent = 'SVG image saved.';
-  });
-  $('#btnTex').addEventListener('click', () => {
-    download(new Blob([buildLatex()], { type: 'application/x-tex;charset=utf-8' }), 'grapher-formulas.tex');
-    $('#notice').textContent = 'LaTeX saved.';
-  });
-  $('#btnMml').addEventListener('click', () => {
-    download(new Blob([buildMathMl()], { type: 'application/mathml+xml;charset=utf-8' }), 'grapher-formulas.xml');
-    $('#notice').textContent = 'MathML saved.';
-  });
-  $('#btnExport').addEventListener('click', () => {
-    download(new Blob([JSON.stringify(serialize(), null, 2)], { type: 'application/json' }), 'grapher-project.json');
-    $('#notice').textContent = 'Project saved.';
-  });
-  $('#btnImport').addEventListener('click', () => $('#fileInput').click());
-  $('#fileInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      const data = JSON.parse(await file.text());
-      animating.clear(); load(data); applyTheme(); syncOptions(); mountList();
-      $('#notice').textContent = 'Project opened.';
-    } catch (_) {
-      $('#notice').textContent = 'That file is not a valid project. Choose a .json saved from this grapher.';
-    }
-  });
-  $('#btnImportMath').addEventListener('click', () => $('#mathInput').click());
-  $('#mathInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    try {
-      const imported = parseLatexOrMathMl(await file.text());
-      if (!imported.length) throw new Error('empty');
-      const remainingSlots = Math.max(0, 100 - state.lines.length);
-      const hasOnlyBlank = state.lines.length === 1 && !state.lines[0].text.trim();
-      if (hasOnlyBlank) {
-        nextId = 1;
-        state.lines = imported.slice(0, 100).map((item, idx) => newLine({
-          text: item.slice(0, 500),
-          color: idx % 8,
-        }));
       } else {
-        const used = new Set(state.lines.map((l) => l.color));
-        const added = imported.slice(0, remainingSlots).map((item) => {
-          const free = [0, 1, 2, 3, 4, 5, 6, 7].find((i) => !used.has(i));
-          if (free !== undefined) used.add(free);
-          return newLine({ text: item.slice(0, 500), ...(free !== undefined ? { color: free } : {}) });
-        });
-        state.lines.push(...added);
+        graph.draw(objectsToDraw(), canvasTheme(), drawOpts);
       }
-      state.active = state.lines[state.lines.length - 1].id;
-      mountList();
-      rows.get(state.active)?.input.focus();
-      $('#notice').textContent = `Imported ${imported.length} formula(s).`;
-    } catch (_) {
-      $('#notice').textContent = 'Could not parse formulas from that file. Choose a valid .tex or MathML .xml/.mml file.';
     }
-  });
+    requestAnimationFrame(tick);
+  }
 
+  function onResize() {
+    graph.resize();
+    graph3d.resize();
+    if (polytope) polytope.resize();
+    if (state.options.equal) { graph.equalize(); syncViewInputs(); }
+    requestDraw();
+  }
+  window.addEventListener('resize', onResize);
 
-  // ---- Startup ----
-  graph.resize();
-  graph.home();
-  let restored = false;
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { load(JSON.parse(saved)); restored = true; }
-  } catch (_) {}
+  if (!load()) {
+    loadExample(EXAMPLES[0], 0, false);
+  } else {
+    for (const [id, k] of [['#opt-grid', 'grid'], ['#opt-axes', 'axes'], ['#opt-trace', 'trace'], ['#opt-equal', 'equal']]) {
+      const el = $(id);
+      if (el) el.checked = !!state.options[k];
+    }
+    renderList();
+    recompile();
+  }
   applyTheme();
-  syncOptions();
-  if (restored) mountList(); else startEmpty();
-  new ResizeObserver(() => { graph.resize(); motion(); }).observe(canvas);
-  window.addEventListener('pagehide', flush);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+  updateMode3DUI();
+  onResize();
+  requestAnimationFrame(tick);
 })();
