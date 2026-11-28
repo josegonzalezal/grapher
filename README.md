@@ -1,59 +1,56 @@
 # Grapher
 
-A zero-dependency math grapher that runs entirely in the browser. Open `index.html` in any modern browser to start graphing. No internet connection, build step, or server is required, and no external libraries or AI services are used.
+A zero-dependency math grapher that runs in the browser. Open `index.html` in any modern browser to start graphing—no internet connection, build step, server, external libraries, or AI services required.
 
 Live demo: <https://josegonzalezal.github.io/grapher/>
 
 ## Features
 
-- **2D graphing:** explicit functions (`y = sin(x)`), polar curves, parametric curves, implicit equations, inequalities, points and piecewise domains such as `y = 1 / x {x >= 1}`.
-- **3D graphing:** surfaces (`z = sin(x) cos(y)`), 3D parametric curves, solids of revolution and four mesh-quality levels with a live performance readout and a benchmark.
-- **N-dimensional polytopes (3D–11D):** hypercube, orthoplex and simplex with multi-plane rotations, formula modulation and optional edge-bridging structural meshes (truss, lattice, ribs).
-- **Sliders and animation:** any unused letter becomes a parameter with its own slider, range and play button.
-- **Trace and analysis:** hover or click a curve to read coordinates and slope.
-- **Projects:** `Save` downloads the current workspace as a `.json` file and `Open` loads one back. `PNG` exports the current view as an image.
-- **Persistence:** the last state (formulas, parameters, view, colors, settings) is stored in `localStorage` and restored on reload.
-- **Theme:** follows the system light/dark setting live until you press the theme button, which then remembers your choice.
-- **Touch support:** pan, orbit and pinch-to-zoom work on touch screens.
+- **2D graphing:** explicit functions (`y = sin(x)`), polar curves, parametric curves, implicit equations, inequalities, points, curve tracing/slope readouts, and piecewise domains (`y = 1 / x {x >= 1}`).
+- **3D graphing:** surfaces (`z = sin(x) cos(y)`), 3D parametric curves, solids of revolution, four mesh-quality levels, live performance telemetry, and a 3-second orbit benchmark.
+- **N-dimensional polytopes (3D–11D):** hypercube, orthoplex, and simplex with per-plane rotation sliders, optional auto-spin, custom `w = ...` formula modulation, and structural edge meshes (`truss`, `lattice`, `ribs`).
+- **Parameters & animation:** any unused identifier becomes an interactive slider with editable bounds and play/pause animation.
+- **Save, export & persistence:** download/load `.json` project files, export a `.png` snapshot, and automatically restore workspace state from `localStorage`.
+- **Theme & touch support:** follows system light/dark mode live until toggled manually; supports pointer/touch pan, orbit, and pinch-to-zoom.
 
 ## Project Structure
 
-- `index.html` — page structure and UI controls
-- `css/styles.css` — design tokens, light/dark mode, and responsive layout
-- `js/formulas.js` — safe expression parser and evaluator (no `eval`, no `new Function`)
-- `js/graph.js` — 2D canvas rendering and interaction
-- `js/graph3d.js` — 3D canvas rendering and camera controls
-- `js/polytope.js` — 3D–11D polytope generation, rotations, projections, and canvas rendering
-- `js/app.js` — application state, UI bindings, sliders, project files, and persistence
-- `tests/formulas.test.js` — parser tests
+- `index.html` — page layout, controls, and help modal
+- `css/styles.css` — theme tokens, light/dark styles, and responsive rules
+- `js/formulas.js` — recursive-descent expression parser and evaluator (no `eval` or `new Function`)
+- `js/graph.js` — 2D renderer, grid/axes, contour/region plotting, and trace
+- `js/graph3d.js` — 3D surface/revolution/curve renderer, camera, and performance metrics
+- `js/polytope.js` — 3D–11D polytope generation, rotations, projections, and edge meshes
+- `js/app.js` — UI state, sliders, examples, mode switching, project I/O, and persistence
+- `tests/formulas.test.js` — parser and evaluator unit tests
 
 ## Safety
 
-Formulas are never executed as JavaScript. Every expression, including the ND formula box, goes through the recursive-descent parser in `js/formulas.js`. Project files and saved state are validated and clamped before use, so opening a `.json` file from someone else cannot run code.
+Expressions are parsed into an AST and evaluated without `eval` or `new Function`. Imported `.json` projects and `localStorage` data are validated, type-checked, and clamped before use.
 
 ## Tests
 
-The parser tests need only Node.js:
+Run the parser test suite with Node.js:
 
-```
+```bash
 node tests/formulas.test.js
 ```
 
 ## Customization & Help
 
-- Colors and theme tokens can be customized in `css/styles.css` and `PALETTE` in `js/app.js`.
-- Syntax and shortcut help is available via the **Guide** button in the app.
+- Adjust theme colors in `css/styles.css` and default line colors in `PALETTE` inside `js/app.js`.
+- Open **Guide** in the top bar for syntax examples, navigation tips, and keyboard shortcuts (`Enter`, `Backspace` on empty line, `Ctrl`+`↑`/`↓`, `Esc`).
 
 ## Browser Support
 
-Any current version of Chrome, Edge, Firefox, or Safari (requires HTML5 `<canvas>`, pointer events, `localStorage` and `CanvasRenderingContext2D.roundRect`, i.e. Chrome 99, Firefox 112 or Safari 16 and newer). If `localStorage` is restricted for local files, the app still runs without persisting state across reloads.
+Any modern version of Chrome, Edge, Firefox, or Safari supporting HTML5 `<canvas>`, pointer events, `localStorage`, and `CanvasRenderingContext2D.roundRect`. If `localStorage` is blocked on `file://` URLs, graphing still works without persisting state across reloads.
 
 ## Code Conventions
 
-- JavaScript: strict mode, `const`/`let`, no `eval`.
-- CSS: one declaration per line, custom properties for theming, sections separated by comments.
+- JavaScript: `'use strict'`, `const`/`let`, no `eval`.
+- CSS: one declaration per line, custom properties for theming, comment-delimited sections.
 - All visible UI text is in English.
 
 ## License
 
-MIT, see `LICENSE`.
+MIT — see `LICENSE`.
