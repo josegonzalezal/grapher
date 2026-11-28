@@ -31,6 +31,24 @@
   box-sizing: border-box;
 }
 
+:root {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.formula-input:focus-visible,
+.nd-formula-row input:focus-visible {
+  outline: none;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -172,6 +190,8 @@ button {
 .sidebar-head {
   padding: 10px 12px;
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
@@ -181,6 +201,7 @@ button {
 
 .sidebar-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -333,6 +354,7 @@ button {
 /* Style popover */
 .style-pop {
   position: fixed;
+  z-index: 40;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -804,6 +826,7 @@ button {
 /* Popover & Modal */
 .popover {
   position: fixed;
+  z-index: 40;
   top: 54px;
   right: 14px;
   width: 320px;
@@ -816,18 +839,42 @@ button {
   padding: 6px;
 }
 
-dialog.modal {
-  margin: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  max-width: min(640px, calc(100vw - 32px));
-  max-height: 85vh;
-  overflow: visible;
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(10, 12, 18, .45);
 }
 
-dialog.modal::backdrop {
-  background: rgba(10, 12, 18, .45);
+.ex-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+}
+
+.ex-item:hover, .ex-item:focus-visible {
+  background: var(--panel-alt);
+}
+
+.ex-item span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
 }
 
 .dialog {
@@ -885,6 +932,17 @@ kbd {
   border: 1px solid var(--line);
 }
 
+@media (hover: none) {
+  .card-tools {
+    opacity: 1;
+  }
+}
+
+/* Wrapper is invisible on desktop: panels keep their own absolute positions */
+.overlays {
+  display: contents;
+}
+
 @media (max-width: 760px) {
   .workspace {
     flex-direction: column;
@@ -900,5 +958,55 @@ kbd {
 
   .splitter {
     display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    overflow-y: auto;
+  }
+
+  .list {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  /* Stack the 3D panels instead of letting them cover each other */
+  .overlays {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    max-height: 42%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+  }
+
+  .overlays > * {
+    position: static;
+    width: auto;
+    max-height: 220px;
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .title {
+    display: none;
+  }
+
+  .topbar {
+    padding: 0 8px;
+  }
+
+  .menu {
+    gap: 4px;
+  }
+
+  .pill {
+    padding: 0 8px;
   }
 }

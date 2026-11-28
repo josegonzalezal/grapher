@@ -15,8 +15,9 @@
   };
 
   function hexToRgb(hex) {
-    const clean = String(hex || '#2b45d4').replace('#', '');
-    if (clean.length !== 6) return [43, 69, 212];
+    let clean = String(hex || '').replace('#', '');
+    if (/^[0-9a-f]{3}$/i.test(clean)) clean = clean.replace(/./g, (ch) => ch + ch);
+    if (!/^[0-9a-f]{6}$/i.test(clean)) return [43, 69, 212];
     const n = parseInt(clean, 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
@@ -382,9 +383,14 @@
       const frameMs = now - t0;
       const dt = Math.max(1, now - this._lastTick);
       this._lastTick = now;
-      this._frameSamples.push(1000 / dt);
-      if (this._frameSamples.length > 24) this._frameSamples.shift();
-      const avgFps = Math.round(this._frameSamples.reduce((a, b) => a + b, 0) / this._frameSamples.length);
+      // Gaps over 250 ms mean the page was idle (nothing to redraw), not that rendering is slow.
+      if (dt <= 250) {
+        this._frameSamples.push(1000 / dt);
+        if (this._frameSamples.length > 24) this._frameSamples.shift();
+      }
+      const avgFps = this._frameSamples.length
+        ? Math.round(this._frameSamples.reduce((a, b) => a + b, 0) / this._frameSamples.length)
+        : Math.round(Math.min(60, 1000 / Math.max(1, frameMs)));
 
       let rating = 'Smooth';
       if (frameMs > 34 || avgFps < 28) rating = 'Heavy';

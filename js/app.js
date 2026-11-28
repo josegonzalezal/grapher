@@ -117,6 +117,16 @@
 
   const STORAGE = 'grapher.v1';
   const $ = (s, p = document) => p.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const num = (v, fallback) => {
+    const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+  const DASHES = ['solid', 'dashed', 'dotted'];
+  const PARAM_NAME = /^[\p{L}][\p{L}\p{N}_]{0,23}$/u;
+  const MAX_LINES = 200;
+  const systemDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   const canvas = $('#canvas');
   const canvas3d = $('#canvas3d');
   const graph = new Graph(canvas);
@@ -126,7 +136,7 @@
   const state = {
     lines: [],
     params: {},
-    options: { grid: true, axes: true, trace: true, equal: false, dark: false },
+    options: { grid: true, axes: true, trace: true, equal: false, dark: systemDark ? systemDark.matches : false, themeSet: false },
     nextId: 1,
     mode3d: false,
     polytopeMode: false,
@@ -149,64 +159,119 @@
     fastUntil = fast ? performance.now() + 140 : 0;
   };
 
+  function snapshot() {
+    graph.syncBounds();
+    return {
+      lines: state.lines,
+      params: state.params,
+      options: state.options,
+      view: [graph.view.xmin, graph.view.xmax, graph.view.ymin, graph.view.ymax],
+      home: graph.homeBounds,
+      mode3d: state.mode3d,
+      polytopeMode: state.polytopeMode,
+      polytopeDim: polytope ? polytope.dim : 4,
+      polytopeShape: polytope ? polytope.shape : 'hypercube',
+      polytopeFormula: polytope ? polytope.formulaText : '',
+      mechEnabled: polytope ? polytope.mechEnabled : false,
+      mechStyle: polytope ? polytope.mechStyle : 'truss',
+      mechSubdivisions: polytope ? polytope.mechSubdivisions : 2,
+      quality3d: graph3d.quality,
+      revolve3d: graph3d.revolveMode,
+      camera3d: graph3d.camera,
+    };
+  }
+
   function save() {
     try {
-      graph.syncBounds();
-      localStorage.setItem(STORAGE, JSON.stringify({
-        lines: state.lines,
-        params: state.params,
-        options: state.options,
-        view: [graph.view.xmin, graph.view.xmax, graph.view.ymin, graph.view.ymax],
-        mode3d: state.mode3d,
-        polytopeMode: state.polytopeMode,
-        polytopeDim: polytope ? polytope.dim : 4,
-        polytopeShape: polytope ? polytope.shape : 'hypercube',
-        polytopeFormula: polytope ? polytope.formulaText : '',
-        mechEnabled: polytope ? polytope.mechEnabled : false,
-        mechStyle: polytope ? polytope.mechStyle : 'truss',
-        mechSubdivisions: polytope ? polytope.mechSubdivisions : 2,
-        quality3d: graph3d.quality,
-        revolve3d: graph3d.revolveMode,
-        camera3d: graph3d.camera,
-      }));
+      localStorage.setItem(STORAGE, JSON.stringify(snapshot()));
     } catch (_) {}
+  }
+
+  function cleanLine(raw, fallbackColor) {
+    return {
+      text: String(raw.text ?? '').slice(0, 2000),
+      color: HEX_COLOR.test(raw.color) ? raw.color : fallbackColor,
+      visible: raw.visible !== false,
+      thickness: Math.min(8, Math.max(0.5, num(raw.thickness, 2.4))),
+      dash: DASHES.includes(raw.dash) ? raw.dash : 'solid',
+      tMin: String(raw.tMin ?? '0').slice(0, 64),
+      tMax: String(raw.tMax ?? '2pi').slice(0, 64),
+    };
+  }
+
+  function cleanParams(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [k, v] of Object.entries(raw).slice(0, 40)) {
+      if (!PARAM_NAME.test(k) || !v || typeof v !== 'object') continue;
+      let min = num(v.min, -5);
+      let max = num(v.max, 5);
+      if (!(max > min)) { min = -5; max = 5; }
+      const step = num(v.step, 0.05);
+      out[k] = { value: num(v.value, 1), min, max, step: step > 0 ? step : 0.05, play: Boolean(v.play) };
+    }
+    return out;
+  }
+
+  /**
+   * Validates and applies a saved project (from localStorage or an imported file).
+   * Nothing from the data is trusted: every field is type-checked and clamped.
+   */
+  function applyProject(raw, { theme = false } = {}) {
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.lines)) return false;
+    const lines = raw.lines.slice(0, MAX_LINES).filter((l) => l && typeof l === 'object');
+    if (!lines.length) return false;
+
+    state.nextId = 1;
+    state.lines = lines.map((l, i) => makeLine(cleanLine(l, PALETTE[i % PALETTE.length])));
+    state.params = cleanParams(raw.params);
+    state.activeExample = null;
+
+    const o = raw.options && typeof raw.options === 'object' ? raw.options : {};
+    for (const k of ['grid', 'axes', 'trace', 'equal']) if (typeof o[k] === 'boolean') state.options[k] = o[k];
+    if (theme) {
+      state.options.themeSet = typeof o.themeSet === 'boolean' ? o.themeSet : o.dark === true;
+      if (state.options.themeSet && typeof o.dark === 'boolean') state.options.dark = o.dark;
+    }
+
+    const v = raw.view;
+    if (Array.isArray(v) && v.length === 4 && v.every(Number.isFinite) && v[1] > v[0] && v[3] > v[2]) {
+      graph.setView(...v);
+    }
+    graph.setHome(raw.home);
+    graph.pinned = null;
+
+    state.mode3d = Boolean(raw.mode3d);
+    state.polytopeMode = state.mode3d && Boolean(raw.polytopeMode);
+    if (polytope) {
+      if (raw.polytopeDim) polytope.setDimension(raw.polytopeDim);
+      if (raw.polytopeShape) polytope.setShape(raw.polytopeShape);
+      polytope.setFormula(typeof raw.polytopeFormula === 'string' ? raw.polytopeFormula.slice(0, 500) : '');
+      polytope.setMechEnabled(Boolean(raw.mechEnabled));
+      if (raw.mechStyle) polytope.setMechStyle(raw.mechStyle);
+      if (raw.mechSubdivisions) polytope.setMechSubdivisions(raw.mechSubdivisions);
+    }
+    if (typeof raw.quality3d === 'string' && Object.prototype.hasOwnProperty.call(Graph3D.QUALITY_LEVELS, raw.quality3d)) {
+      graph3d.quality = raw.quality3d;
+    }
+    graph3d.revolveMode = Boolean(raw.revolve3d);
+    const cam = raw.camera3d;
+    if (cam && typeof cam === 'object') {
+      const t = cam.target && typeof cam.target === 'object' ? cam.target : {};
+      graph3d.camera = {
+        yaw: num(cam.yaw, -0.68),
+        pitch: Math.max(-1.48, Math.min(1.48, num(cam.pitch, 0.42))),
+        distance: Math.max(1.2, Math.min(80, num(cam.distance, 8.5))),
+        range: Math.max(1.5, Math.min(30, num(cam.range, 3.5))),
+        target: { x: num(t.x, 0), y: num(t.y, 0), z: num(t.z, 0) },
+      };
+    }
+    return true;
   }
 
   function load() {
     try {
-      const raw = JSON.parse(localStorage.getItem(STORAGE));
-      if (!raw || !Array.isArray(raw.lines) || !raw.lines.length) return false;
-      state.lines = raw.lines;
-      state.nextId = Math.max(0, ...state.lines.map((l) => l.id || 0)) + 1;
-      state.params = raw.params || {};
-      Object.assign(state.options, raw.options);
-      if (Array.isArray(raw.view) && raw.view.length === 4) graph.setView(...raw.view);
-      state.mode3d = Boolean(raw.mode3d);
-      state.polytopeMode = Boolean(raw.polytopeMode);
-      if (polytope) {
-        if (raw.polytopeDim) polytope.setDimension(raw.polytopeDim);
-        if (raw.polytopeShape) polytope.setShape(raw.polytopeShape);
-        if (raw.polytopeFormula) polytope.setFormula(raw.polytopeFormula);
-        if (raw.mechEnabled) polytope.setMechEnabled(Boolean(raw.mechEnabled));
-        if (raw.mechStyle) polytope.setMechStyle(raw.mechStyle);
-        if (raw.mechSubdivisions) polytope.setMechSubdivisions(raw.mechSubdivisions);
-      }
-      if (raw.quality3d) graph3d.quality = raw.quality3d;
-      if (raw.revolve3d) graph3d.revolveMode = Boolean(raw.revolve3d);
-      if (raw.camera3d) {
-        graph3d.camera = {
-          yaw: Number.isFinite(raw.camera3d.yaw) ? raw.camera3d.yaw : -0.68,
-          pitch: Number.isFinite(raw.camera3d.pitch) ? raw.camera3d.pitch : 0.42,
-          distance: Number.isFinite(raw.camera3d.distance) ? raw.camera3d.distance : 8.5,
-          range: Number.isFinite(raw.camera3d.range) ? raw.camera3d.range : 3.5,
-          target: {
-            x: Number.isFinite(raw.camera3d.target?.x) ? raw.camera3d.target.x : 0,
-            y: Number.isFinite(raw.camera3d.target?.y) ? raw.camera3d.target.y : 0,
-            z: Number.isFinite(raw.camera3d.target?.z) ? raw.camera3d.target.z : 0,
-          },
-        };
-      }
-      return true;
+      return applyProject(JSON.parse(localStorage.getItem(STORAGE)), { theme: true });
     } catch (_) { return false; }
   }
 
@@ -252,14 +317,35 @@
     requestDraw();
   }
 
+  function refreshConstBadges() {
+    compiled.lines.forEach((l, idx) => {
+      if (l.type === 'constant' && !l.literal && state.lines[idx]) {
+        const b = $(`.card[data-id="${state.lines[idx].id}"] .val-badge`);
+        const cv = l.evaluate();
+        if (b && Number.isFinite(cv)) b.textContent = `= ${+cv.toPrecision(7)}`;
+      }
+    });
+  }
+
+  // Range text is parsed once and cached: objectsToDraw() runs on every frame and every mouse move.
+  const rangeCache = new Map();
+  function rangeValue(text) {
+    const key = String(text ?? '');
+    if (!rangeCache.has(key)) {
+      if (rangeCache.size > 500) rangeCache.clear();
+      rangeCache.set(key, Formulas.evaluateNumber(key));
+    }
+    return rangeCache.get(key);
+  }
+
   function objectsToDraw() {
     const out = [];
     state.lines.forEach((line, i) => {
       if (!line.visible) return;
       const o = compiled.lines[i];
       if (!o || ['empty', 'error', 'constant', 'function'].includes(o.type)) return;
-      const a = Formulas.evaluateNumber(line.tMin);
-      const b = Formulas.evaluateNumber(line.tMax);
+      const a = rangeValue(line.tMin);
+      const b = rangeValue(line.tMax);
       const defB = o.type === 'polar' ? 2 * Math.PI : 10;
       const range = [Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : defB];
       const dash = line.dash || 'solid';
@@ -300,18 +386,18 @@
     card.dataset.id = line.id;
     card.innerHTML = `
       <div class="card-row">
-        <button type="button" class="swatch${line.visible ? '' : ' off'}" style="background:${line.color}" title="Color and style"></button>
-        <input type="text" class="formula-input" spellcheck="false" autocomplete="off" placeholder="Write a formula, e.g. y = sin(x) or z = sin(x) cos(y)">
+        <button type="button" class="swatch${line.visible ? '' : ' off'}" title="Color and style" aria-label="Color and style"></button>
+        <input type="text" class="formula-input" aria-label="Expression" spellcheck="false" autocomplete="off" placeholder="Write a formula, e.g. y = sin(x) or z = sin(x) cos(y)">
         <div class="card-tools">
-          <button type="button" class="mini-btn eye" title="Show / hide">👁</button>
-          <button type="button" class="mini-btn dup" title="Duplicate">⧉</button>
-          <button type="button" class="mini-btn del" title="Delete">✕</button>
+          <button type="button" class="mini-btn eye" title="Show / hide" aria-label="Show or hide">👁</button>
+          <button type="button" class="mini-btn dup" title="Duplicate" aria-label="Duplicate">⧉</button>
+          <button type="button" class="mini-btn del" title="Delete" aria-label="Delete">✕</button>
         </div>
       </div>
       <div class="card-meta" hidden>
         <div class="range-row" hidden>
-          <span>from</span><input type="text" class="tmin" value="${line.tMin}">
-          <span>to</span><input type="text" class="tmax" value="${line.tMax}">
+          <span>from</span><input type="text" class="tmin" aria-label="Range start">
+          <span>to</span><input type="text" class="tmax" aria-label="Range end">
         </div>
         <span class="val-badge" hidden></span>
       </div>
@@ -344,6 +430,9 @@
     });
 
     const swatch = $('.swatch', card);
+    swatch.style.background = line.color;
+    $('.tmin', card).value = line.tMin;
+    $('.tmax', card).value = line.tMax;
     swatch.addEventListener('click', (e) => {
       e.stopPropagation();
       openStylePop(line, swatch);
@@ -475,7 +564,7 @@
             <input type="text" class="pmax" value="${p.max}" title="Maximum">
           </div>
         </div>
-        <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.value}">`;
+        <input type="range" aria-label="${esc(name)} value" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.value}">`;
 
       const slider = $('input[type="range"]', row);
       const valIn = $('.param-val', row);
@@ -487,13 +576,7 @@
         globals[name] = p.value;
         valIn.value = p.value;
         slider.value = p.value;
-        compiled.lines.forEach((l, idx) => {
-          if (l.type === 'constant' && !l.literal && state.lines[idx]) {
-            const b = $(`.card[data-id="${state.lines[idx].id}"] .val-badge`);
-            const cv = l.evaluate();
-            if (b && Number.isFinite(cv)) b.textContent = `= ${+cv.toPrecision(7)}`;
-          }
-        });
+        refreshConstBadges();
         requestDraw(true);
       };
 
@@ -745,6 +828,7 @@
     if (ndDimSelect && polytope) ndDimSelect.value = String(polytope.dim);
     if (ndShapeSelect && polytope) ndShapeSelect.value = polytope.shape;
     if (meshSelect) meshSelect.value = graph3d.quality;
+    if (ndFormulaInput && polytope && document.activeElement !== ndFormulaInput) ndFormulaInput.value = polytope.formulaText || '';
     if (btnRevolve) btnRevolve.setAttribute('aria-pressed', String(graph3d.revolveMode));
     if (state.mode3d) {
       graph3d.resize();
@@ -815,19 +899,37 @@
     badge.className = 'perf-badge' + (m.rating === 'Moderate' ? ' moderate' : m.rating === 'Heavy' ? ' heavy' : '');
   }
 
+  let themeCache = null;
+
   function applyTheme() {
     document.documentElement.dataset.theme = state.options.dark ? 'dark' : 'light';
+    const btn = $('#btn-theme');
+    btn.textContent = state.options.dark ? '☀' : '☾';
+    btn.title = state.options.dark ? 'Switch to light mode' : 'Switch to dark mode';
+    themeCache = null;
     requestDraw();
   }
+
   $('#btn-theme').addEventListener('click', () => {
+    state.options.themeSet = true;
     state.options.dark = !state.options.dark;
     applyTheme();
     save();
   });
 
+  if (systemDark && systemDark.addEventListener) {
+    systemDark.addEventListener('change', (e) => {
+      if (state.options.themeSet) return;
+      state.options.dark = e.matches;
+      applyTheme();
+      save();
+    });
+  }
+
   function canvasTheme() {
+    if (themeCache) return themeCache;
     const s = getComputedStyle(document.documentElement);
-    return {
+    themeCache = {
       bg: s.getPropertyValue('--bg').trim(),
       gridFine: state.options.dark ? 'rgba(255,255,255,.045)' : 'rgba(15,23,42,.055)',
       gridMajor: state.options.dark ? 'rgba(255,255,255,.10)' : 'rgba(15,23,42,.11)',
@@ -835,6 +937,7 @@
       text: s.getPropertyValue('--muted').trim(),
       labelBg: s.getPropertyValue('--panel').trim(),
     };
+    return themeCache;
   }
 
   const coordsEl = $('#coords');
@@ -939,11 +1042,22 @@
   });
 
   let orbitDrag = null;
+  const pointers3d = new Map();
+  let pinch3d = null;
+  const active3dView = () => (state.polytopeMode && polytope ? polytope : graph3d);
 
   canvas3d.addEventListener('contextmenu', (e) => e.preventDefault());
 
   canvas3d.addEventListener('pointerdown', (e) => {
     canvas3d.setPointerCapture(e.pointerId);
+    pointers3d.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers3d.size === 2) {
+      const [a, b] = [...pointers3d.values()];
+      pinch3d = { dist: Math.hypot(a.x - b.x, a.y - b.y) };
+      orbitDrag = null;
+      return;
+    }
+    if (pointers3d.size > 2) return;
     const isPan = e.shiftKey || e.button === 1 || e.button === 2;
     orbitDrag = {
       x: e.clientX,
@@ -954,13 +1068,26 @@
   });
 
   canvas3d.addEventListener('pointermove', (e) => {
+    if (pointers3d.has(e.pointerId)) pointers3d.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pinch3d && pointers3d.size === 2) {
+      const [a, b] = [...pointers3d.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d > 4 && pinch3d.dist > 4) {
+        active3dView().zoom(d / pinch3d.dist);
+        requestDraw(true);
+      }
+      pinch3d.dist = d;
+      return;
+    }
     if (!orbitDrag) return;
+
     const dx = e.clientX - orbitDrag.x;
     const dy = e.clientY - orbitDrag.y;
     orbitDrag.x = e.clientX;
     orbitDrag.y = e.clientY;
 
-    const active3d = state.polytopeMode && polytope ? polytope : graph3d;
+    const active3d = active3dView();
 
     if (orbitDrag.mode === 'pan') {
       active3d.pan(dx, dy);
@@ -973,10 +1100,15 @@
     requestDraw(true);
   });
 
-  const endOrbit = () => {
-    if (!orbitDrag) return;
-    orbitDrag = null;
-    canvas3d.classList.remove('panning');
+  const endOrbit = (e) => {
+    pointers3d.delete(e.pointerId);
+    const wasPinching = Boolean(pinch3d);
+    if (pointers3d.size < 2) pinch3d = null;
+    if (!orbitDrag && !wasPinching) return;
+    if (pointers3d.size === 0) {
+      orbitDrag = null;
+      canvas3d.classList.remove('panning');
+    }
     fastUntil = 0;
     save();
     requestDraw();
@@ -1070,8 +1202,8 @@
   const exBtn = $('#btn-examples');
   exPop.innerHTML = EXAMPLES.map((ex, i) => `
     <button type="button" class="ex-item" data-i="${i}">
-      <strong>${ex.name}</strong>
-      <span>${ex.lines.map((l) => l.text).join('  ·  ')}</span>
+      <strong>${esc(ex.name)}</strong>
+      <span>${esc(ex.lines.map((l) => l.text).join('  ·  '))}</span>
     </button>`).join('');
 
   exPop.addEventListener('click', (e) => {
@@ -1105,6 +1237,7 @@
       graph3d.revolveMode = Boolean(ex.revolve3d);
     }
     graph.setView(...ex.view);
+    graph.setHome(ex.view);
     if (state.options.equal) graph.equalize();
     graph.pinned = null;
     syncViewInputs();
@@ -1117,9 +1250,20 @@
   }
 
   const helpModal = $('#help-modal');
-  $('#btn-help').addEventListener('click', () => { helpModal.hidden = false; });
-  $('#btn-help-close').addEventListener('click', () => { helpModal.hidden = true; });
-  helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.hidden = true; });
+  let helpOpener = null;
+  const openHelp = () => {
+    helpOpener = document.activeElement;
+    helpModal.hidden = false;
+    $('#btn-help-close').focus();
+  };
+  const closeHelp = () => {
+    if (helpModal.hidden) return;
+    helpModal.hidden = true;
+    if (helpOpener && typeof helpOpener.focus === 'function') helpOpener.focus();
+  };
+  $('#btn-help').addEventListener('click', openHelp);
+  $('#btn-help-close').addEventListener('click', closeHelp);
+  helpModal.addEventListener('click', (e) => { if (e.target === helpModal) closeHelp(); });
 
   document.addEventListener('click', (e) => {
     if (!exPop.hidden && !exPop.contains(e.target) && e.target !== exBtn) {
@@ -1129,12 +1273,13 @@
     if (stylePop && !stylePop.contains(e.target)) closeStylePop();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { helpModal.hidden = true; exPop.hidden = true; closeStylePop(); }
+    if (e.key === 'Escape') { closeHelp(); exPop.hidden = true; exBtn.setAttribute('aria-expanded', 'false'); closeStylePop(); }
   });
 
   const sidebar = $('#sidebar');
   $('#btn-panel').addEventListener('click', () => {
     sidebar.classList.toggle('collapsed');
+    $('#btn-panel').setAttribute('aria-pressed', String(!sidebar.classList.contains('collapsed')));
     onResize();
   });
 
@@ -1161,9 +1306,54 @@
     state.lines = [makeLine()];
     state.params = {};
     graph.pinned = null;
+    graph.setHome(null);
     renderList();
     recompile();
     $('.formula-input', listEl).focus();
+  });
+
+  function syncOptionInputs() {
+    for (const [id, k] of [['#opt-grid', 'grid'], ['#opt-axes', 'axes'], ['#opt-trace', 'trace'], ['#opt-equal', 'equal']]) {
+      const el = $(id);
+      if (el) el.checked = !!state.options[k];
+    }
+  }
+
+  $('#btn-export').addEventListener('click', () => {
+    const data = { format: 'grapher-project', version: 1, ...snapshot() };
+    const { grid, axes, trace, equal } = state.options;
+    data.options = { grid, axes, trace, equal };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'grapher-project.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  const fileImport = $('#file-import');
+  $('#btn-import').addEventListener('click', () => fileImport.click());
+  fileImport.addEventListener('change', async () => {
+    const file = fileImport.files && fileImport.files[0];
+    fileImport.value = '';
+    if (!file) return;
+    try {
+      if (file.size > 1000000) throw new Error('The file is larger than 1 MB.');
+      const ok = applyProject(JSON.parse(await file.text()));
+      if (!ok) throw new Error('It does not look like a Grapher project.');
+      closeStylePop();
+      syncOptionInputs();
+      renderList();
+      recompile();
+      updateMode3DUI();
+      syncViewInputs();
+      save();
+      requestDraw();
+    } catch (err) {
+      window.alert(`Could not open that file. ${err && err.message ? err.message : ''}`.trim());
+    }
   });
 
   let lastT = performance.now();
@@ -1173,17 +1363,20 @@
     lastT = now;
 
     let animated = false;
+    let paramsMoved = false;
     const rows = paramsEl.children;
     Object.keys(state.params).forEach((name, idx) => {
       const p = state.params[name];
       if (!p.play) return;
       animated = true;
+      paramsMoved = true;
       p.value += ((p.max - p.min) / 6) * dt;
       if (p.value > p.max) p.value = p.min;
       p.value = +p.value.toPrecision(5);
       globals[name] = p.value;
       if (rows[idx] && rows[idx]._sync) rows[idx]._sync();
     });
+    if (paramsMoved) refreshConstBadges();
 
     if (state.mode3d && state.polytopeMode && polytope) {
       polytope.stepAnimation(dt);
@@ -1234,13 +1427,11 @@
   if (!load()) {
     loadExample(EXAMPLES[0], 0, false);
   } else {
-    for (const [id, k] of [['#opt-grid', 'grid'], ['#opt-axes', 'axes'], ['#opt-trace', 'trace'], ['#opt-equal', 'equal']]) {
-      const el = $(id);
-      if (el) el.checked = !!state.options[k];
-    }
+    syncOptionInputs();
     renderList();
     recompile();
   }
+  if (!state.options.themeSet && systemDark) state.options.dark = systemDark.matches;
   applyTheme();
   updateMode3DUI();
   onResize();

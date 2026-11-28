@@ -4,9 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grapher</title>
+  <meta name="description" content="Zero-dependency math grapher: 2D functions, 3D surfaces, parametric and polar curves, inequalities and N-dimensional polytopes.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect x='2' y='2' width='24' height='24' rx='6' fill='%23e8ebfb' stroke='%232b45d4' stroke-width='1.5'/%3E%3Cpath d='M5 20 C 10 8, 12 8, 14 14 S 18 20, 23 8' fill='none' stroke='%232b45d4' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+  <noscript>Grapher needs JavaScript to draw graphs. Please enable it and reload.</noscript>
   <header class="topbar">
     <div class="brand">
       <svg class="logo" viewBox="0 0 28 28" aria-hidden="true">
@@ -31,6 +35,9 @@
         <div class="sidebar-actions">
           <button type="button" class="small-btn" id="btn-add">+ Add</button>
           <button type="button" class="small-btn" id="btn-clear">Clear</button>
+          <button type="button" class="small-btn" id="btn-import" title="Open a saved project (.json)">Open</button>
+          <button type="button" class="small-btn" id="btn-export" title="Save the project as a .json file">Save</button>
+          <input type="file" id="file-import" accept=".json,application/json" hidden>
         </div>
       </div>
 
@@ -85,9 +92,10 @@
     <div class="splitter" id="splitter" title="Drag to resize"></div>
 
     <main class="stage">
-      <canvas id="canvas"></canvas>
-      <canvas id="canvas3d" hidden></canvas>
+      <canvas id="canvas" role="img" aria-label="2D graph of the expressions in the sidebar"></canvas>
+      <canvas id="canvas3d" role="img" aria-label="3D graph of the expressions in the sidebar" hidden></canvas>
 
+      <div class="overlays">
       <div class="perf-hud" id="perf-hud" hidden>
         <div class="perf-row">
           <span class="perf-badge" id="perf-rating">Smooth</span>
@@ -140,7 +148,7 @@
 
       <div class="nd-drawer" id="nd-drawer" hidden>
         <div class="nd-formula-row">
-          <input type="text" id="nd-formula" placeholder="ND formula, e.g. w = sin(x + y) * 1.4" spellcheck="false" autocomplete="off">
+          <input type="text" id="nd-formula" aria-label="ND formula" placeholder="ND formula, e.g. w = sin(x + y) * 1.4" spellcheck="false" autocomplete="off">
           <button type="button" class="small-btn" id="btn-nd-formula-clear">Reset</button>
         </div>
         <div class="nd-formula-err" id="nd-formula-err" hidden></div>
@@ -169,6 +177,8 @@
         <div class="nd-planes" id="nd-planes"></div>
       </div>
 
+      </div>
+
       <div class="hud">
         <div class="coords" id="coords">0, 0</div>
         <div class="zoom-bar">
@@ -184,7 +194,7 @@
   <div class="popover" id="examples-pop" hidden></div>
 
   <div class="modal" id="help-modal" hidden>
-    <div class="dialog" role="dialog" aria-labelledby="help-title">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
       <div class="dialog-head">
         <h2 id="help-title">Graphing Guide</h2>
         <button type="button" class="icon-btn" id="btn-help-close" aria-label="Close">✕</button>
@@ -203,9 +213,11 @@
             <tr><td>Multidimensional ND</td><td><code>w = sin(x + y) * 1.4</code> (axes <code>x..p</code>, vertex <code>i</code>, dim <code>d</code>)</td></tr>
             <tr><td>Edge mech</td><td>Toggle <code>Edge Mech</code> to bridge edges with trusses, ribs or lattice</td></tr>
             <tr><td>Parameters</td><td>Any letter except <code>x, y, z, t, theta, r, e, pi</code></td></tr>
+            <tr><td>Projects</td><td><code>Save</code> downloads a <code>.json</code> file, <code>Open</code> loads one back</td></tr>
           </tbody>
         </table>
-        <p><strong>Navigation:</strong> Drag to pan (2D) or orbit (3D/ND). Hold <code>Shift</code> or right/middle-drag in 3D/ND to pan target. Scroll or use <code>+</code>/<code>−</code> to zoom; double-click or <code>⌂</code> to reset.</p>
+        <p><strong>Navigation:</strong> Drag to pan (2D) or orbit (3D/ND). Hold <code>Shift</code> or right/middle-drag in 3D/ND to pan target. Scroll, pinch, or use <code>+</code>/<code>−</code> to zoom; double-click or <code>⌂</code> to reset.</p>
+        <p><strong>Keyboard:</strong> <kbd>Enter</kbd> adds a line below, <kbd>Backspace</kbd> on an empty line deletes it, <kbd>Ctrl</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves a line, <kbd>Esc</kbd> closes menus.</p>
       </div>
     </div>
   </div>

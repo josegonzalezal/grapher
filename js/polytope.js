@@ -98,58 +98,21 @@
       body = eqMatch[2].trim();
     }
 
-    const normalized = body
-      .replace(/\^/g, '**')
-      .replace(/\bpi\b/gi, 'Math.PI')
-      .replace(/\btau\b/gi, '(2 * Math.PI)')
-      .replace(/\btheta\b/gi, 't')
-      .replace(/\be\b/g, 'Math.E')
-      .replace(/\bsqrt\(/g, 'Math.sqrt(')
-      .replace(/\bcbrt\(/g, 'Math.cbrt(')
-      .replace(/\babs\(/g, 'Math.abs(')
-      .replace(/\bsin\(/g, 'Math.sin(')
-      .replace(/\bcos\(/g, 'Math.cos(')
-      .replace(/\btan\(/g, 'Math.tan(')
-      .replace(/\basin\(/g, 'Math.asin(')
-      .replace(/\bacos\(/g, 'Math.acos(')
-      .replace(/\batan\(/g, 'Math.atan(')
-      .replace(/\batan2\(/g, 'Math.atan2(')
-      .replace(/\bsinh\(/g, 'Math.sinh(')
-      .replace(/\bcosh\(/g, 'Math.cosh(')
-      .replace(/\btanh\(/g, 'Math.tanh(')
-      .replace(/\basinh\(/g, 'Math.asinh(')
-      .replace(/\bacosh\(/g, 'Math.acosh(')
-      .replace(/\batanh\(/g, 'Math.atanh(')
-      .replace(/\bexp\(/g, 'Math.exp(')
-      .replace(/\bln\(/g, 'Math.log(')
-      .replace(/\blog10\(/g, 'Math.log10(')
-      .replace(/\blog2\(/g, 'Math.log2(')
-      .replace(/\blog\(/g, 'Math.log10(')
-      .replace(/\bfloor\(/g, 'Math.floor(')
-      .replace(/\bceil\(/g, 'Math.ceil(')
-      .replace(/\bround\(/g, 'Math.round(')
-      .replace(/\bsign\(/g, 'Math.sign(')
-      .replace(/\bmin\(/g, 'Math.min(')
-      .replace(/\bmax\(/g, 'Math.max(');
-
-    if (
-      /[;{}[\]=?]|\b(window|document|globalThis|eval|Function|import|while|for|new|this|arguments|constructor|prototype)\b/.test(normalized)
-    ) {
-      return { targetAxis: null, fn: null, error: 'Unsupported syntax in ND formula' };
+    const Formulas = global.Formulas;
+    if (!Formulas || typeof Formulas.compileExpression !== 'function') {
+      return { targetAxis: null, fn: null, error: 'Formula parser is not available' };
     }
 
-    try {
-      const argNames = [...VAR_NAMES, 'i', 'd'];
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(...argNames, `"use strict"; return (${normalized});`);
-      const testVal = fn(...new Array(argNames.length).fill(0.5));
-      if (typeof testVal !== 'number') {
-        return { targetAxis: null, fn: null, error: 'Expression must evaluate to a number' };
-      }
-      return { targetAxis, fn, error: '' };
-    } catch (err) {
-      return { targetAxis: null, fn: null, error: err.message || 'Invalid formula' };
+    const argNames = [...VAR_NAMES, 'i', 'd'];
+    const compiled = Formulas.compileExpression(body, argNames);
+    if (!compiled.fn) {
+      return { targetAxis: null, fn: null, error: compiled.error || 'Invalid formula' };
     }
+    const testVal = compiled.fn(...new Array(argNames.length).fill(0.5));
+    if (typeof testVal !== 'number') {
+      return { targetAxis: null, fn: null, error: 'Expression must evaluate to a number' };
+    }
+    return { targetAxis, fn: compiled.fn, error: '' };
   }
 
   function buildEdgeMech(vertices, edges, dim, subdivisions, mechStyle) {

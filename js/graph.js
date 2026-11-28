@@ -20,13 +20,21 @@
       this.notables = [];
       this.hover = null;
       this.pinned = null;
+      this.homeBounds = null;
+    }
+
+    /** Remembers the view that Home / double-click should return to (null = default view). */
+    setHome(bounds) {
+      this.homeBounds = Array.isArray(bounds) && bounds.length === 4 && bounds.every(Number.isFinite) ? bounds.slice() : null;
     }
 
     resize() {
       const r = this.canvas.getBoundingClientRect();
+      // A hidden canvas (3D mode) measures 0x0; keep the last real size so the saved view is not corrupted.
+      if (r.width < 1 || r.height < 1) return;
       const d = window.devicePixelRatio || 1;
-      this.w = Math.max(1, r.width);
-      this.h = Math.max(1, r.height);
+      this.w = r.width;
+      this.h = r.height;
       this.dpr = d;
       this.canvas.width = Math.round(this.w * d);
       this.canvas.height = Math.round(this.h * d);
@@ -100,6 +108,11 @@
     }
 
     home() {
+      if (this.homeBounds) {
+        this.setView(...this.homeBounds);
+        this.syncBounds();
+        return;
+      }
       const s = Math.max(20, Math.min(this.w || 600, this.h || 500) / 12);
       this.view = { cx: 0, cy: 0, sx: s, sy: s };
       this.syncBounds();

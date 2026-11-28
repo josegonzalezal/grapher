@@ -607,7 +607,37 @@
     } catch (_) { return NaN; }
   }
 
-  const api = { compileAll, evaluateNumber, derivative };
+  /**
+   * Compiles one standalone expression that may only use the given variable names
+   * (plus constants and built-in functions). Used by the ND formula box so that no
+   * user text is ever executed as JavaScript.
+   * @param {string} text expression such as "sin(x + y) * 1.4"
+   * @param {string[]} names allowed variable names, in argument order
+   * @returns {{fn: ?Function, error: string}}
+   */
+  function compileExpression(text, names) {
+    try {
+      const ast = parse(tokenize(String(text), []), new Set());
+      const ctx = {
+        defs: { funcs: new Map(), consts: new Map() }, globals: Object.create(null),
+        parameters: new Set(), stack: new Set(), locals: new Set([...names, 'θ']),
+      };
+      const f = compile(ast, ctx);
+      if (ctx.parameters.size) fail(`Unknown variable “${[...ctx.parameters][0]}”`);
+      const scope = Object.create(null);
+      const tIndex = names.indexOf('t');
+      const fn = (...values) => {
+        for (let i = 0; i < names.length; i++) scope[names[i]] = values[i];
+        scope['θ'] = tIndex >= 0 ? values[tIndex] : 0;
+        return f(scope);
+      };
+      return { fn, error: '' };
+    } catch (e) {
+      return { fn: null, error: message(e) };
+    }
+  }
+
+  const api = { compileAll, compileExpression, evaluateNumber, derivative };
   global.Formulas = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
